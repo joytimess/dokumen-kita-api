@@ -3,7 +3,7 @@ info:
   title: dokumen-kita API
   version: 1.0.0
   description: |
-    Kontrak BE04. Endpoint auth, draft, impor, dan tahap selanjutnya belum dicakup.
+    Kontrak BE04 dan BE05. Endpoint auth, draft, impor, dan tahap selanjutnya belum dicakup.
     Sesi cookie Sanctum; SPA terlebih dahulu mengambil cookie CSRF dan mengirim
     X-XSRF-TOKEN pada request yang mengubah state. Semua path memakai GUID.
     Owner dapat menjadi signer pada urutan mana pun dan tetap menunggu giliran.
@@ -188,6 +188,227 @@ paths:
           $ref: '#/components/responses/Error'
         '429':
           $ref: '#/components/responses/Error'
+  /versions/{versionGuid}/pdf:
+    parameters:
+      - $ref: '#/components/parameters/VersionGuid'
+    get:
+      operationId: viewVersionPdf
+      summary: Stream preview, snapshot, atau PDF final sesuai Policy
+      description: |
+        Owner dapat membaca preview siap dan setiap versi historis.
+        Recipient waiting/cancelled mendapat 403; outsider mendapat 404.
+        Recipient ready/signed/revision_requested/rejected dapat membaca versi
+        assignment miliknya. completed menyajikan final PDF yang hash-nya cocok;
+        state lain menyajikan snapshot. Respons tidak memuat URL storage.
+      responses:
+        '200':
+          description: PDF privat dengan Cache-Control private, no-store.
+          headers:
+            X-Document-Content-Hash:
+              description: Hash snapshot untuk confirmation/signature, bukan hash PDF final.
+              schema:
+                type: string
+                pattern: '^[a-f0-9]{64}$'
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /assignments/{assignmentGuid}/read-confirmation:
+    parameters:
+      - $ref: '#/components/parameters/AssignmentGuid'
+    post:
+      operationId: confirmAssignmentRead
+      summary: Simpan pernyataan eksplisit membaca snapshot sebagai signer ready
+      description: |
+        Akun terikat dan email terverifikasi; versi terkini in_progress dan
+        assignment ready untuk confirmation baru. Pernyataan ini bukan bukti
+        objektif bahwa pengguna telah membaca semua halaman. Hash harus cocok.
+        Retry mengembalikan confirmation yang sama tanpa audit tambahan,
+        termasuk sesudah signed selama versi terkini masih aktif/finalizing/completed.
+        Maksimal 30 request per menit per akun.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmationInput'
+      responses:
+        '201':
+          $ref: '#/components/responses/ReadConfirmation'
+        '200':
+          $ref: '#/components/responses/ReadConfirmation'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+  /assignments/{assignmentGuid}/signatures:
+    parameters:
+      - $ref: '#/components/parameters/AssignmentGuid'
+    post:
+      operationId: signAssignment
+      summary: Tanda tangan atomik dan pergantian giliran
+      description: |
+        Signer ready dengan email terverifikasi, read confirmation pada hash
+        snapshot yang sama, dan asset privat miliknya. Satu tindakan mengisi
+        seluruh placeholder assignment. Owner yang menjadi signer tidak dapat
+        melompati urutan. Request yang sama (key, asset, hash) mengembalikan
+        signature sama; retry berbeda mendapat IDEMPOTENCY_CONFLICT.
+        Aktifkan penerima berikutnya dan antrekan undangan ready baru; token
+        pending lama dicabut. Signer terakhir memindahkan versi/document
+        ke finalizing dan mencatat outbox version_finalizing; tidak mengklaim
+        PDF final sudah tersedia. Maksimal 30 request per menit per akun.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/ConfirmationInput'
+                - type: object
+                  required: [asset_guid, idempotency_key]
+                  properties:
+                    asset_guid:
+                      type: string
+                      format: uuid
+                    idempotency_key:
+                      type: string
+                      minLength: 1
+                      maxLength: 64
+                      pattern: '^[a-zA-Z0-9_-]+$'
+      responses:
+        '201':
+          $ref: '#/components/responses/Signature'
+        '200':
+          $ref: '#/components/responses/Signature'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+  /signature-assets:
+    get:
+      operationId: listOwnSignatureAssets
+      summary: Library aset tanda tangan milik sendiri
+      description: Pagination 15 item/halaman, diurutkan id descending secara stabil.
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Aset milik akun; tidak memuat object key privat.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta, links]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SignatureAsset'
+                  meta:
+                    type: object
+                    properties:
+                      request_id:
+                        type: string
+                      current_page:
+                        type: integer
+                      last_page:
+                        type: integer
+                      total:
+                        type: integer
+                      per_page:
+                        type: integer
+                  links:
+                    type: object
+        '401':
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createSignatureAsset
+      summary: Simpan coretan canvas atau upload gambar tanda tangan immutable
+      description: |
+        PNG/JPEG/WebP; isi/MIME, ekstensi, ukuran, dan dimensi diperiksa.
+        Default batas 2048 KiB, dimensi 16..2048 x 16..1024, masih placeholder B04.
+        Gambar putih, transparan kosong, dan warna solid ditolak. Normalisasi PNG
+        membuang metadata input dan menyimpan objek privat baru dengan hash.
+        source_type drawn untuk canvas baru; upload untuk gambar unggahan.
+        Aset tersimpan digunakan ulang melalui asset_guid saat submit signature,
+        dengan confirmation baru pada setiap assignment. Tidak ada endpoint edit.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, source_type]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                source_type:
+                  type: string
+                  enum: [drawn, upload]
+      responses:
+        '201':
+          $ref: '#/components/responses/SignatureAsset'
+        '401':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+  /signature-assets/{assetGuid}/image:
+    get:
+      operationId: viewOwnSignatureAsset
+      summary: Stream gambar aset milik sendiri
+      parameters:
+        - name: assetGuid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: PNG privat; hash diverifikasi, cache dinonaktifkan.
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
 components:
   securitySchemes:
     sessionCookie:
@@ -211,6 +432,73 @@ components:
         type: string
         format: uuid
   schemas:
+    ConfirmationInput:
+      type: object
+      required: [confirmed, version_content_hash]
+      properties:
+        confirmed:
+          type: boolean
+          const: true
+        version_content_hash:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+    ReadConfirmation:
+      type: object
+      required: [guid, assignment_guid, version_content_hash, confirmed_at]
+      properties:
+        guid:
+          type: string
+          format: uuid
+        assignment_guid:
+          type: string
+          format: uuid
+        version_content_hash:
+          type: string
+        confirmed_at:
+          type: string
+          format: date-time
+    Signature:
+      type: object
+      required: [guid, assignment_guid, asset_guid, version_content_hash, signed_at]
+      properties:
+        guid:
+          type: string
+          format: uuid
+        assignment_guid:
+          type: string
+          format: uuid
+        asset_guid:
+          type: string
+          format: uuid
+        version_content_hash:
+          type: string
+        signed_at:
+          type: string
+          format: date-time
+    SignatureAsset:
+      type: object
+      required: [guid, source_type, mime_type, width, height, size_bytes, image_url, created_at]
+      properties:
+        guid:
+          type: string
+          format: uuid
+        source_type:
+          type: string
+          enum: [drawn, upload]
+        mime_type:
+          type: [string, 'null']
+        width:
+          type: [integer, 'null']
+        height:
+          type: [integer, 'null']
+        size_bytes:
+          type: [integer, 'null']
+        image_url:
+          type: string
+          format: uri
+        created_at:
+          type: string
+          format: date-time
     Meta:
       type: object
       required: [request_id]
@@ -290,6 +578,16 @@ components:
           description: Tersedia jika dimuat; disembunyikan untuk recipient waiting.
           items:
             $ref: '#/components/schemas/Placeholder'
+        read_confirmation:
+          description: Jika dimuat; disembunyikan untuk recipient waiting.
+          oneOf:
+            - $ref: '#/components/schemas/ReadConfirmation'
+            - type: 'null'
+        signature:
+          description: Jika dimuat; disembunyikan untuk recipient waiting.
+          oneOf:
+            - $ref: '#/components/schemas/Signature'
+            - type: 'null'
     Version:
       type: object
       required: [guid, document_guid, version_number, status, preview_status, published_at, created_at, updated_at]
@@ -311,6 +609,9 @@ components:
         preview_page_count:
           type: [integer, 'null']
           description: Owner saja.
+        content_hash:
+          type: [string, 'null']
+          description: Owner atau signer yang berhak membaca PDF saja.
         assignments:
           type: array
           description: Owner melihat semua; recipient hanya assignment miliknya.
@@ -351,6 +652,11 @@ components:
                 PLACEHOLDERS_NEED_REVIEW, INVITATION_INVALID,
                 INVITATION_NOT_ACTIVE, INVITATION_ALREADY_CLAIMED,
                 TOO_MANY_REQUESTS, CSRF_TOKEN_MISMATCH.
+                BE05 menambah PDF_NOT_READY, PDF_MISMATCH, CONTENT_HASH_MISMATCH,
+                ASSIGNMENT_NOT_READY, VERSION_NOT_SIGNABLE, READ_CONFIRMATION_REQUIRED,
+                READ_CONFIRMATION_MISMATCH, IDEMPOTENCY_CONFLICT, SIGNING_ORDER_CONFLICT,
+                SIGNATURE_IMAGE_INVALID, SIGNATURE_IMAGE_EMPTY,
+                SIGNATURE_ASSET_UNAVAILABLE, SIGNATURE_ASSET_CHANGED.
             message:
               type: string
             errors:
@@ -362,6 +668,42 @@ components:
         meta:
           $ref: '#/components/schemas/Meta'
   responses:
+    ReadConfirmation:
+      description: Confirmation baru (201) atau hasil retry (200).
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data, meta]
+            properties:
+              data:
+                $ref: '#/components/schemas/ReadConfirmation'
+              meta:
+                $ref: '#/components/schemas/Meta'
+    Signature:
+      description: Signature baru (201) atau hasil retry request sama (200).
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data, meta]
+            properties:
+              data:
+                $ref: '#/components/schemas/Signature'
+              meta:
+                $ref: '#/components/schemas/Meta'
+    SignatureAsset:
+      description: Aset PNG privat baru.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data, meta]
+            properties:
+              data:
+                $ref: '#/components/schemas/SignatureAsset'
+              meta:
+                $ref: '#/components/schemas/Meta'
     Version:
       description: Resource versi; header X-Request-Id sesuai meta.request_id.
       content:

@@ -14,4 +14,15 @@ class SignerAssignmentPolicy
     {
         return $this->versions->update($user, $assignment->version);
     }
+
+    public function act(User $user, SignerAssignment $assignment): Response
+    {
+        if ($assignment->user_guid === $user->guid) {
+            return Response::allow();
+        }
+
+        return $this->versions->view($user, $assignment->version)->allowed()
+            ? Response::deny()
+            : Response::denyAsNotFound();
+    }
 }

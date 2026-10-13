@@ -25,6 +25,7 @@ class DocumentVersionResource extends ApiResource
             'version_number' => $this->version_number,
             'status' => $this->status,
             'preview_status' => $this->preview_status,
+            'content_hash' => $this->when($request->user()?->can('viewPdf', $this->resource), $this->content_hash),
             'preview_page_count' => $this->when($isOwner, $this->preview_page_count),
             'assignments' => $this->whenLoaded('assignments', function () use ($isOwner, $request) {
                 $assignments = $isOwner ? $this->assignments : $this->assignments->where('user_guid', $request->user()?->guid)->values();

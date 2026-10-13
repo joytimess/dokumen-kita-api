@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Models\ReadConfirmation;
+use App\Models\SignerAssignment;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -18,7 +19,9 @@ class ReadConfirmationFactory extends Factory
     public function definition(): array
     {
         return [
-            //
+            'assignment_guid' => fn () => SignerAssignment::factory()->create()->guid,
+            'version_content_hash' => fn (array $attributes) => SignerAssignment::where('guid', $attributes['assignment_guid'])->firstOrFail()->version->content_hash ?? str_repeat('a', 64),
+            'confirmed_at' => now(),
         ];
     }
 }

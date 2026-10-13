@@ -6,6 +6,8 @@ use App\Enums\VersionStatus;
 use App\Exceptions\ApiException;
 use App\Models\Document;
 use App\Models\DocumentVersion;
+use App\Models\SignerAssignment;
+use App\Models\User;
 
 class VersionWorkflow
 {
@@ -29,8 +31,29 @@ class VersionWorkflow
 
     public function assertCurrent(DocumentVersion $version): void
     {
-        if ($version->document->versions()->where('version_number', '>', $version->version_number)->exists()) {
+        if ($version->document->versions()->where('version_number', '>', $version->version_number)->lockForUpdate()->first(['guid']) !== null) {
             throw ApiException::conflict('VERSION_CONFLICT', 'Versi ini bukan versi dokumen terkini.');
+        }
+    }
+
+    public function assertSigner(User $actor, SignerAssignment $assignment): void
+    {
+        if ($assignment->user_guid !== $actor->guid) {
+            throw new ApiException(403, 'FORBIDDEN', 'Assignment tidak terikat dengan akun Anda.');
+        }
+        if (! $actor->hasVerifiedEmail()) {
+            throw new ApiException(403, 'EMAIL_NOT_VERIFIED', 'Verifikasi email sebelum menandatangani.');
+        }
+    }
+
+    public function assertReady(DocumentVersion $version, SignerAssignment $assignment): void
+    {
+        $this->assertCurrent($version);
+        if ($version->status !== VersionStatus::InProgress) {
+            throw ApiException::conflict('VERSION_NOT_SIGNABLE', 'Versi ini sudah tidak dapat ditandatangani.');
+        }
+        if ($assignment->status !== 'ready') {
+            throw ApiException::conflict('ASSIGNMENT_NOT_READY', 'Assignment belum siap atau sudah selesai.');
         }
     }
 }

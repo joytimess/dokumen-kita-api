@@ -92,11 +92,7 @@ class InvitationService
                 throw ApiException::conflict('INVITATION_NOT_ACTIVE', 'Undangan ini sudah tidak aktif.');
             }
 
-            $locked->invitationLinks()->whereNull('revoked_at')->update(['revoked_at' => now()]);
-            EmailNotification::where('assignment_guid', $locked->guid)
-                ->whereIn('notification_type', ['invitation_ready', 'invitation_waiting'])
-                ->whereIn('status', ['queued', 'failed'])
-                ->update(['status' => 'cancelled', 'payload' => null]);
+            $this->revoke($locked);
 
             $this->issue($locked);
             $this->audit->record('invitation.resent', $version->document, $version, $actor, ['assignment_guid' => $locked->guid]);
@@ -108,5 +104,15 @@ class InvitationService
     private function invalidInvitation(): ApiException
     {
         return new ApiException(422, 'INVITATION_INVALID', 'Undangan tidak valid, kedaluwarsa, atau tidak sesuai dengan email akun.');
+    }
+
+    /** Call inside the business transaction after locking the assignment. */
+    public function revoke(SignerAssignment $assignment): void
+    {
+        $assignment->invitationLinks()->whereNull('revoked_at')->update(['revoked_at' => now()]);
+        EmailNotification::where('assignment_guid', $assignment->guid)
+            ->whereIn('notification_type', ['invitation_ready', 'invitation_waiting'])
+            ->whereIn('status', ['queued', 'failed'])
+            ->update(['status' => 'cancelled', 'payload' => null]);
     }
 }

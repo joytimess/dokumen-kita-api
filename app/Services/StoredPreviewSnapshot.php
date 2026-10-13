@@ -22,14 +22,19 @@ class StoredPreviewSnapshot
             throw ApiException::conflict('PREVIEW_NOT_READY', 'Preview terbaru belum siap.');
         }
 
+        $this->verifyFile($version->preview_pdf_path, $version->content_hash);
+    }
+
+    public function verifyFile(string $path, string $expectedHash, string $errorPrefix = 'PREVIEW'): void
+    {
         $disk = Storage::disk(config('documents.disk'));
-        if (! $disk->exists($version->preview_pdf_path)) {
-            throw ApiException::conflict('PREVIEW_NOT_READY', 'Berkas preview tidak tersedia.');
+        if (! $disk->exists($path)) {
+            throw ApiException::conflict($errorPrefix.'_NOT_READY', 'Berkas PDF tidak tersedia.');
         }
 
-        $stream = $disk->readStream($version->preview_pdf_path);
+        $stream = $disk->readStream($path);
         if (! is_resource($stream)) {
-            throw ApiException::conflict('PREVIEW_NOT_READY', 'Berkas preview tidak tersedia.');
+            throw ApiException::conflict($errorPrefix.'_NOT_READY', 'Berkas PDF tidak tersedia.');
         }
 
         try {
@@ -42,8 +47,8 @@ class StoredPreviewSnapshot
             fclose($stream);
         }
 
-        if ($header !== '%PDF-' || ! hash_equals($version->content_hash, $hash)) {
-            throw ApiException::conflict('PREVIEW_MISMATCH', 'Berkas preview berubah. Buat preview baru.');
+        if ($header !== '%PDF-' || ! hash_equals($expectedHash, $hash)) {
+            throw ApiException::conflict($errorPrefix.'_MISMATCH', 'Berkas PDF tidak sesuai dengan hash yang tersimpan.');
         }
     }
 }

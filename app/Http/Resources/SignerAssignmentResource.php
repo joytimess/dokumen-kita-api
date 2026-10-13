@@ -22,6 +22,8 @@ class SignerAssignmentResource extends ApiResource
             'status' => $this->status,
             'claimed_at' => $this->claimed_at,
             'placeholders' => $this->when($canViewPlaceholders, fn () => SignaturePlaceholderResource::collection($this->whenLoaded('placeholders'))),
+            'read_confirmation' => $this->when($canViewPlaceholders, fn () => new ReadConfirmationResource($this->whenLoaded('readConfirmation'))),
+            'signature' => $this->when($canViewPlaceholders, fn () => new SignatureResource($this->whenLoaded('signature'))),
         ];
     }
 }

@@ -29,6 +29,22 @@ class DocumentVersionPolicy
         return $this->isAssigned($user, $version) ? Response::deny() : Response::denyAsNotFound();
     }
 
+    public function viewPdf(User $user, DocumentVersion $version): Response
+    {
+        if ($this->owns($user, $version)) {
+            return Response::allow();
+        }
+
+        $assignment = $version->assignments()->where('user_guid', $user->guid)->first();
+        if ($assignment === null) {
+            return Response::denyAsNotFound();
+        }
+
+        return in_array($assignment->status, ['ready', 'signed', 'revision_requested', 'rejected'], true)
+            ? Response::allow()
+            : Response::deny();
+    }
+
     private function owns(User $user, DocumentVersion $version): bool
     {
         return $version->document->owner_guid === $user->guid;

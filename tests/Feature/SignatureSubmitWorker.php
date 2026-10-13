@@ -1,0 +1,60 @@
+<?php
+
+use App\Exceptions\ApiException;
+use App\Models\SignerAssignment;
+use App\Models\User;
+use App\Services\SignatureService;
+use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
+
+require dirname(__DIR__, 2).'/vendor/autoload.php';
+$application = require dirname(__DIR__, 2).'/bootstrap/app.php';
+$application->make(Kernel::class)->bootstrap();
+
+[$script, $database, $userGuid, $assignmentGuid, $assetGuid, $contentHash, $key, $storageRoot, $gate] = $argv;
+if (preg_match('/\Adk_be05_test_[a-f0-9]{16}\z/', $database) !== 1) {
+    exit(1);
+}
+config([
+    'database.default' => 'mysql',
+    'database.connections.mysql.url' => null,
+    'database.connections.mysql.database' => $database,
+    'documents.disk' => 'local',
+    'filesystems.disks.local.root' => $storageRoot,
+]);
+DB::purge('mysql');
+DB::setDefaultConnection('mysql');
+
+/** Hold the actual document lock briefly so the other worker must contend for it. */
+$lockWaitMs = 0;
+DB::listen(function (QueryExecuted $query) use (&$lockWaitMs): void {
+    if (str_contains($query->sql, 'from `documents`') && str_contains($query->sql, 'for update')) {
+        $lockWaitMs = $query->time;
+        usleep(250_000);
+    }
+});
+echo "ready\n";
+flush();
+/** Both booted workers observe the same start signal independently of parent pipe polling. */
+$deadline = microtime(true) + 10;
+while (! is_file($gate)) {
+    if (microtime(true) >= $deadline) {
+        exit(1);
+    }
+    usleep(1_000);
+}
+
+try {
+    $signature = $application->make(SignatureService::class)->sign(
+        User::where('guid', $userGuid)->firstOrFail(),
+        SignerAssignment::where('guid', $assignmentGuid)->firstOrFail(),
+        $assetGuid, $contentHash, $key,
+    );
+    echo json_encode(['signature_guid' => $signature->guid, 'lock_wait_ms' => $lockWaitMs], JSON_THROW_ON_ERROR)."\n";
+} catch (ApiException $exception) {
+    echo json_encode(['error' => $exception->errorCode, 'status' => $exception->status, 'lock_wait_ms' => $lockWaitMs], JSON_THROW_ON_ERROR)."\n";
+} catch (Throwable $exception) {
+    fwrite(STDERR, get_class($exception)."\n");
+    exit(1);
+}

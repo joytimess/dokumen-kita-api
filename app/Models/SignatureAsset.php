@@ -9,11 +9,19 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['user_guid', 'file_path', 'file_hash', 'source_type'])]
+#[Fillable(['user_guid', 'file_path', 'file_hash', 'source_type', 'mime_type', 'size_bytes', 'width', 'height'])]
 class SignatureAsset extends Model
 {
     /** @use HasFactory<SignatureAssetFactory> */
     use HasFactory, HasGuid;
+
+    protected $hidden = ['file_path'];
+
+    /** @return array<string, string> */
+    protected function casts(): array
+    {
+        return ['size_bytes' => 'integer', 'width' => 'integer', 'height' => 'integer'];
+    }
 
     /**
      * @return BelongsTo<User, $this>

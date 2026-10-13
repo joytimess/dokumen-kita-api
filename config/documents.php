@@ -17,6 +17,13 @@ return [
         'max_placeholders_per_signer' => 100,
     ],
 
+    'signature_assets' => [
+        'max_kilobytes' => 2048,
+        'max_width' => 2048,
+        'max_height' => 1024,
+        'min_ink_pixels' => 10,
+    ],
+
     'import' => [
         'max_kilobytes' => (int) env('DOCUMENT_IMPORT_MAX_KB', 20480),
     ],
