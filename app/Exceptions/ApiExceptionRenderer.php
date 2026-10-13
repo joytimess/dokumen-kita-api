@@ -25,7 +25,10 @@ class ApiExceptionRenderer
 
         $exceptions->render(fn (ValidationException $e, Request $request) => $this->respond($request, 422, 'VALIDATION_FAILED', 'Data yang dikirim tidak valid.', $e->errors()));
         $exceptions->render(fn (AuthenticationException $e, Request $request) => $this->respond($request, 401, 'UNAUTHENTICATED', 'Sesi tidak ditemukan atau sudah berakhir.'));
-        $exceptions->render(fn (AuthorizationException $e, Request $request) => $this->respond($request, 403, 'FORBIDDEN', 'Anda tidak berhak melakukan tindakan ini.'));
+        $exceptions->render(fn (ApiException $e, Request $request) => $this->respond($request, $e->status, $e->errorCode, $e->getMessage()));
+        $exceptions->render(fn (AuthorizationException $e, Request $request) => $e->status() === 404
+            ? $this->respond($request, 404, 'NOT_FOUND', 'Data tidak ditemukan.')
+            : $this->respond($request, 403, 'FORBIDDEN', 'Anda tidak berhak melakukan tindakan ini.'));
         $exceptions->render(fn (ModelNotFoundException|NotFoundHttpException $e, Request $request) => $this->respond($request, 404, 'NOT_FOUND', 'Data tidak ditemukan.'));
         $exceptions->render(fn (TokenMismatchException $e, Request $request) => $this->respond($request, 419, 'CSRF_TOKEN_MISMATCH', 'Token CSRF tidak valid atau kedaluwarsa.'));
         $exceptions->render(fn (HttpExceptionInterface $e, Request $request) => $this->respond(
@@ -33,11 +36,16 @@ class ApiExceptionRenderer
             $e->getStatusCode(),
             match ($e->getStatusCode()) {
                 403 => 'FORBIDDEN',
+                404 => 'NOT_FOUND',
                 409 => 'CONFLICT',
                 429 => 'TOO_MANY_REQUESTS',
                 default => 'HTTP_ERROR',
             },
-            $e->getMessage() !== '' ? $e->getMessage() : 'Permintaan tidak dapat diproses.',
+            match ($e->getStatusCode()) {
+                403 => 'Anda tidak berhak melakukan tindakan ini.',
+                404 => 'Data tidak ditemukan.',
+                default => $e->getMessage() !== '' ? $e->getMessage() : 'Permintaan tidak dapat diproses.',
+            },
         ));
         $exceptions->render(function (Throwable $e, Request $request) {
             if (config('app.debug')) {

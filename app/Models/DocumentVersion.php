@@ -3,6 +3,9 @@
 namespace App\Models;
 
 use App\Concerns\HasGuid;
+use App\Enums\PreviewStatus;
+use App\Enums\SourceType;
+use App\Enums\VersionStatus;
 use Database\Factories\DocumentVersionFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -23,6 +26,9 @@ class DocumentVersion extends Model
     {
         return [
             'editor_data_json' => 'array',
+            'status' => VersionStatus::class,
+            'preview_status' => PreviewStatus::class,
+            'source_type' => SourceType::class,
             'published_at' => 'datetime',
             'version_number' => 'integer',
         ];

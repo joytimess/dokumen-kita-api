@@ -1,6 +1,9 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\DocumentController;
+use App\Http\Controllers\Api\V1\DocumentImportController;
+use App\Http\Controllers\Api\V1\DocumentVersionController;
 use App\Http\Controllers\Api\V1\EmailVerificationController;
 use App\Http\Controllers\Api\V1\MeController;
 use App\Http\Controllers\Api\V1\PasswordResetController;
@@ -23,5 +26,12 @@ Route::prefix('v1')->group(function (): void {
 
     Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('me', [MeController::class, 'show']);
+
+        Route::get('documents', [DocumentController::class, 'index']);
+        Route::post('documents', [DocumentController::class, 'store']);
+        Route::get('documents/{document}', [DocumentController::class, 'show']);
+        Route::post('documents/{document}/imports', [DocumentImportController::class, 'store'])->middleware('throttle:uploads');
+
+        Route::patch('versions/{version}', [DocumentVersionController::class, 'update']);
     });
 });

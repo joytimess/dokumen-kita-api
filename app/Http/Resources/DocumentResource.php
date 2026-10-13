@@ -1,0 +1,29 @@
+<?php
+
+namespace App\Http\Resources;
+
+use App\Models\Document;
+use Illuminate\Http\Request;
+
+/**
+ * @mixin Document
+ */
+class DocumentResource extends ApiResource
+{
+    /**
+     * @return array<string, mixed>
+     */
+    public function toArray(Request $request): array
+    {
+        return [
+            'guid' => $this->guid,
+            'public_reference' => $this->public_reference,
+            'title' => $this->title,
+            'status' => $this->status,
+            'owner_guid' => $this->owner_guid,
+            'current_version' => new DocumentVersionResource($this->whenLoaded('latestVersion')),
+            'created_at' => $this->created_at,
+            'updated_at' => $this->updated_at,
+        ];
+    }
+}
