@@ -160,6 +160,7 @@ class DocumentService
         }
 
         $version->content_hash = null;
+        $version->preview_page_count = null;
 
         SignaturePlaceholder::query()
             ->whereIn('assignment_guid', $version->assignments()->select('guid'))

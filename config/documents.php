@@ -8,6 +8,15 @@ return [
     /* Private disk for sources, previews, signatures and final PDFs. Use an S3-compatible disk (R2) in staging/production. */
     'disk' => env('DOCUMENT_DISK', 'local'),
 
+    'invitations' => [
+        'expires_days' => (int) env('INVITATION_EXPIRES_DAYS', 7),
+    ],
+
+    'signing' => [
+        'max_signers' => 50,
+        'max_placeholders_per_signer' => 100,
+    ],
+
     'import' => [
         'max_kilobytes' => (int) env('DOCUMENT_IMPORT_MAX_KB', 20480),
     ],

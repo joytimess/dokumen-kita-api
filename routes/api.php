@@ -1,12 +1,16 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AssignmentPlaceholderController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\DocumentImportController;
 use App\Http\Controllers\Api\V1\DocumentVersionController;
 use App\Http\Controllers\Api\V1\EmailVerificationController;
+use App\Http\Controllers\Api\V1\InvitationController;
 use App\Http\Controllers\Api\V1\MeController;
 use App\Http\Controllers\Api\V1\PasswordResetController;
+use App\Http\Controllers\Api\V1\VersionPublishController;
+use App\Http\Controllers\Api\V1\VersionSignerController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function (): void {
@@ -33,5 +37,10 @@ Route::prefix('v1')->group(function (): void {
         Route::post('documents/{document}/imports', [DocumentImportController::class, 'store'])->middleware('throttle:uploads');
 
         Route::patch('versions/{version}', [DocumentVersionController::class, 'update']);
+        Route::put('versions/{version}/signers', [VersionSignerController::class, 'update']);
+        Route::put('assignments/{assignment}/placeholders', [AssignmentPlaceholderController::class, 'update']);
+        Route::post('versions/{version}/publish', [VersionPublishController::class, 'store'])->middleware('throttle:20,1');
+        Route::post('invitations/claim', [InvitationController::class, 'claim'])->middleware('throttle:invitations');
+        Route::post('assignments/{assignment}/resend-invitation', [InvitationController::class, 'resend'])->middleware('throttle:invitation-resend');
     });
 });

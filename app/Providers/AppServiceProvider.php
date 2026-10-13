@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Models\SignerAssignment;
 use App\Models\User;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
@@ -36,6 +37,13 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('auth-login', fn (Request $request) => Limit::perMinute(5)->by(Str::lower((string) $request->input('email')).'|'.$request->ip()));
         RateLimiter::for('uploads', fn (Request $request) => Limit::perMinute(20)->by((string) $request->user()?->guid));
         RateLimiter::for('auth-register', fn (Request $request) => Limit::perMinute(10)->by((string) $request->ip()));
+        RateLimiter::for('invitations', fn (Request $request) => Limit::perMinute(10)->by($request->user()?->guid.'|'.$request->ip()));
+        RateLimiter::for('invitation-resend', function (Request $request): Limit {
+            $assignment = $request->route('assignment');
+            $assignmentGuid = $assignment instanceof SignerAssignment ? $assignment->guid : (string) $assignment;
+
+            return Limit::perMinute(3)->by($request->user()?->guid.'|'.$assignmentGuid);
+        });
     }
 
     /**

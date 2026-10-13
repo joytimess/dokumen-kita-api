@@ -1,0 +1,397 @@
+openapi: 3.1.0
+info:
+  title: dokumen-kita API
+  version: 1.0.0
+  description: |
+    Kontrak BE04. Endpoint auth, draft, impor, dan tahap selanjutnya belum dicakup.
+    Sesi cookie Sanctum; SPA terlebih dahulu mengambil cookie CSRF dan mengirim
+    X-XSRF-TOKEN pada request yang mengubah state. Semua path memakai GUID.
+    Owner dapat menjadi signer pada urutan mana pun dan tetap menunggu giliran.
+    Email dinormalisasi trim + lowercase tanpa mengubah titik atau plus.
+    Publish memerlukan preview privat yang siap, hash SHA-256 cocok, jumlah
+    halaman tersimpan, dan placeholder yang sudah ditinjau ulang.
+    Renderer produksi dan worker pengiriman email belum diimplementasikan.
+servers:
+  - url: /api/v1
+security:
+  - sessionCookie: []
+paths:
+  /versions/{versionGuid}/signers:
+    parameters:
+      - $ref: '#/components/parameters/VersionGuid'
+    put:
+      operationId: updateVersionSigners
+      summary: Ganti daftar penerima draft sebagai owner
+      description: |
+        Urutan wajib 1..N tanpa celah atau duplikasi. Array kosong menghapus
+        daftar draft; publish menolaknya. Penerima yang dipertahankan tetap
+        memiliki GUID dan placeholder yang sama ketika urutannya berubah.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [signers]
+              properties:
+                signers:
+                  type: array
+                  maxItems: 50
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [email, sequence_number]
+                    properties:
+                      email:
+                        type: string
+                        format: email
+                        maxLength: 255
+                      sequence_number:
+                        type: integer
+                        minimum: 1
+      responses:
+        '200':
+          $ref: '#/components/responses/Version'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+  /assignments/{assignmentGuid}/placeholders:
+    parameters:
+      - $ref: '#/components/parameters/AssignmentGuid'
+    put:
+      operationId: updateAssignmentPlaceholders
+      summary: Ganti dan tinjau ulang placeholder draft sebagai owner
+      description: |
+        Posisi terhadap halaman PDF setelah rotasi, ternormalisasi 0..1.
+        x + width dan y + height tidak boleh melebihi 1. Nomor halaman
+        harus tersedia pada preview. Maksimal enam angka desimal.
+        Array kosong menghapus posisi tanpa mensyaratkan preview siap.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [placeholders]
+              properties:
+                placeholders:
+                  type: array
+                  maxItems: 100
+                  items:
+                    $ref: '#/components/schemas/Position'
+      responses:
+        '200':
+          $ref: '#/components/responses/Assignment'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+  /versions/{versionGuid}/publish:
+    parameters:
+      - $ref: '#/components/parameters/VersionGuid'
+    post:
+      operationId: publishVersion
+      summary: Bekukan draft dan buat undangan serta outbox secara atomik
+      description: |
+        Owner saja. Signer pertama menjadi ready, sisanya waiting.
+        Retry versi terkini yang sudah in_progress, finalizing, atau completed
+        mengembalikan resource tanpa mengulang audit, token, atau outbox.
+        Versi lama, terminal, atau dokumen dengan versi aktif lain ditolak.
+        Tidak menerima perubahan manifest dari request ini.
+        Maksimal 20 request per menit per akun.
+      responses:
+        '200':
+          $ref: '#/components/responses/Version'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+  /invitations/claim:
+    post:
+      operationId: claimInvitation
+      summary: Ikat undangan ke akun dengan email terverifikasi yang cocok
+      description: |
+        Token berupa 32 byte acak yang dikodekan menjadi 64 karakter hex.
+        Default berlaku 7 hari, dikonfigurasi melalui INVITATION_EXPIRES_DAYS.
+        Claim pada assignment waiting tidak membuka giliran maupun konten.
+        Retry akun yang sama tidak menggandakan audit claim.
+        Token tidak valid, revoked, expired, atau email tidak cocok mendapat
+        INVITATION_INVALID yang sama. Maksimal 10 request/menit per akun + IP.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  pattern: '^[a-f0-9]{64}$'
+                  minLength: 64
+                  maxLength: 64
+      responses:
+        '200':
+          $ref: '#/components/responses/Assignment'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+  /assignments/{assignmentGuid}/resend-invitation:
+    parameters:
+      - $ref: '#/components/parameters/AssignmentGuid'
+    post:
+      operationId: resendAssignmentInvitation
+      summary: Cabut token lama dan antrekan undangan baru sebagai owner
+      description: |
+        Hanya pada versi terkini in_progress dan assignment ready atau waiting.
+        Token lama dicabut, outbox undangan queued/failed dibatalkan serta
+        payloadnya dihapus. Maksimal 3 request/menit per owner + assignment.
+        Respons tidak memuat token atau URL undangan.
+      responses:
+        '200':
+          $ref: '#/components/responses/Assignment'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: laravel-session
+      description: Nama cookie mengikuti SESSION_COOKIE; default aplikasi laravel-session.
+  parameters:
+    VersionGuid:
+      name: versionGuid
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AssignmentGuid:
+      name: assignmentGuid
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    Meta:
+      type: object
+      required: [request_id]
+      properties:
+        request_id:
+          type: string
+    Position:
+      type: object
+      additionalProperties: false
+      required: [page_number, x, y, width, height]
+      properties:
+        page_number:
+          type: integer
+          minimum: 1
+        x:
+          type: number
+          minimum: 0
+          maximum: 1
+          multipleOf: 0.000001
+        y:
+          type: number
+          minimum: 0
+          maximum: 1
+          multipleOf: 0.000001
+        width:
+          type: number
+          minimum: 0.000001
+          maximum: 1
+          multipleOf: 0.000001
+        height:
+          type: number
+          minimum: 0.000001
+          maximum: 1
+          multipleOf: 0.000001
+    Placeholder:
+      type: object
+      required: [guid, page_number, x, y, width, height, needs_review]
+      properties:
+        guid:
+          type: string
+          format: uuid
+        page_number:
+          type: integer
+        x:
+          type: number
+        y:
+          type: number
+        width:
+          type: number
+        height:
+          type: number
+        needs_review:
+          type: boolean
+    Assignment:
+      type: object
+      required: [guid, version_guid, recipient_email, sequence_number, status, claimed_at]
+      properties:
+        guid:
+          type: string
+          format: uuid
+        version_guid:
+          type: string
+          format: uuid
+        recipient_email:
+          type: string
+          format: email
+        sequence_number:
+          type: integer
+        status:
+          type: string
+          enum: [waiting, ready, signed, revision_requested, rejected, cancelled]
+        claimed_at:
+          type: [string, 'null']
+          format: date-time
+        placeholders:
+          type: array
+          description: Tersedia jika dimuat; disembunyikan untuk recipient waiting.
+          items:
+            $ref: '#/components/schemas/Placeholder'
+    Version:
+      type: object
+      required: [guid, document_guid, version_number, status, preview_status, published_at, created_at, updated_at]
+      properties:
+        guid:
+          type: string
+          format: uuid
+        document_guid:
+          type: string
+          format: uuid
+        version_number:
+          type: integer
+        status:
+          type: string
+          enum: [draft, preparing, in_progress, finalizing, completed, revision_requested, superseded, rejected]
+        preview_status:
+          type: string
+          enum: [none, stale, queued, ready, failed]
+        preview_page_count:
+          type: [integer, 'null']
+          description: Owner saja.
+        assignments:
+          type: array
+          description: Owner melihat semua; recipient hanya assignment miliknya.
+          items:
+            $ref: '#/components/schemas/Assignment'
+        source_type:
+          type: [string, 'null']
+          enum: [pdf, docx, null]
+        has_source:
+          type: boolean
+        editor_data:
+          type: [object, 'null']
+          description: Owner saja.
+        published_at:
+          type: [string, 'null']
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ErrorEnvelope:
+      type: object
+      required: [error, meta]
+      properties:
+        error:
+          type: object
+          required: [code, message, errors]
+          properties:
+            code:
+              type: string
+              description: |
+                UNAUTHENTICATED, FORBIDDEN, NOT_FOUND, VALIDATION_FAILED,
+                EMAIL_NOT_VERIFIED, VERSION_NOT_EDITABLE, VERSION_CONFLICT,
+                ACTIVE_VERSION_EXISTS, SIGNERS_INVALID, PREVIEW_NOT_READY,
+                PREVIEW_MISMATCH, PLACEHOLDERS_REQUIRED, PLACEHOLDERS_INVALID,
+                PLACEHOLDERS_NEED_REVIEW, INVITATION_INVALID,
+                INVITATION_NOT_ACTIVE, INVITATION_ALREADY_CLAIMED,
+                TOO_MANY_REQUESTS, CSRF_TOKEN_MISMATCH.
+            message:
+              type: string
+            errors:
+              type: object
+              additionalProperties:
+                type: array
+                items:
+                  type: string
+        meta:
+          $ref: '#/components/schemas/Meta'
+  responses:
+    Version:
+      description: Resource versi; header X-Request-Id sesuai meta.request_id.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data, meta]
+            properties:
+              data:
+                $ref: '#/components/schemas/Version'
+              meta:
+                $ref: '#/components/schemas/Meta'
+    Assignment:
+      description: Resource assignment; header X-Request-Id sesuai meta.request_id.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data, meta]
+            properties:
+              data:
+                $ref: '#/components/schemas/Assignment'
+              meta:
+                $ref: '#/components/schemas/Meta'
+    Error:
+      description: |
+        Error terstruktur. Outsider mendapat 404; recipient yang bukan owner
+        mendapat 403 saat mengatur/publish/resend. State konflik mendapat 409,
+        bentuk input atau token invalid mendapat 422. CSRF dapat mendapat 419.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'

@@ -43,6 +43,6 @@ class DocumentController extends Controller
     {
         Gate::authorize('view', $document);
 
-        return new DocumentResource($document->load('latestVersion.document'));
+        return new DocumentResource($document->load('latestVersion.document', 'latestVersion.assignments.placeholders'));
     }
 }

@@ -25,6 +25,15 @@ class DocumentVersionResource extends ApiResource
             'version_number' => $this->version_number,
             'status' => $this->status,
             'preview_status' => $this->preview_status,
+            'preview_page_count' => $this->when($isOwner, $this->preview_page_count),
+            'assignments' => $this->whenLoaded('assignments', function () use ($isOwner, $request) {
+                $assignments = $isOwner ? $this->assignments : $this->assignments->where('user_guid', $request->user()?->guid)->values();
+                foreach ($assignments as $assignment) {
+                    $assignment->setRelation('version', $this->resource);
+                }
+
+                return SignerAssignmentResource::collection($assignments);
+            }),
             'source_type' => $this->when($isOwner, $this->source_type),
             'has_source' => $this->when($isOwner, $this->source_path !== null),
             'editor_data' => $this->when($isOwner, $this->editor_data_json),

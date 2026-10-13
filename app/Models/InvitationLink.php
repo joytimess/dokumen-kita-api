@@ -15,6 +15,8 @@ class InvitationLink extends Model
     /** @use HasFactory<InvitationLinkFactory> */
     use HasFactory, HasGuid;
 
+    protected $hidden = ['token_hash'];
+
     /**
      * @return array<string, string>
      */

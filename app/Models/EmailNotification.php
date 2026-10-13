@@ -9,11 +9,13 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['version_guid', 'assignment_guid', 'recipient_email', 'notification_type', 'deduplication_key', 'status', 'attempt_count', 'scheduled_at', 'sent_at'])]
+#[Fillable(['version_guid', 'assignment_guid', 'recipient_email', 'notification_type', 'deduplication_key', 'status', 'attempt_count', 'scheduled_at', 'sent_at', 'payload'])]
 class EmailNotification extends Model
 {
     /** @use HasFactory<EmailNotificationFactory> */
     use HasFactory, HasGuid;
+
+    protected $hidden = ['payload'];
 
     /**
      * @return array<string, string>
@@ -24,6 +26,7 @@ class EmailNotification extends Model
             'attempt_count' => 'integer',
             'scheduled_at' => 'datetime',
             'sent_at' => 'datetime',
+            'payload' => 'encrypted:array',
         ];
     }
 
