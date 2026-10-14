@@ -46,7 +46,7 @@ class ApiExceptionRenderer
                 404 => 'Data tidak ditemukan.',
                 default => $e->getMessage() !== '' ? $e->getMessage() : 'Permintaan tidak dapat diproses.',
             },
-        ));
+        )?->withHeaders($e->getHeaders()));
         $exceptions->render(function (Throwable $e, Request $request) {
             if (config('app.debug')) {
                 return null;

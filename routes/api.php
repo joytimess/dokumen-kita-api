@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\V1\DocumentImportController;
 use App\Http\Controllers\Api\V1\DocumentPdfController;
 use App\Http\Controllers\Api\V1\DocumentVersionController;
 use App\Http\Controllers\Api\V1\EmailVerificationController;
+use App\Http\Controllers\Api\V1\GoogleAuthController;
 use App\Http\Controllers\Api\V1\InvitationController;
 use App\Http\Controllers\Api\V1\MeController;
 use App\Http\Controllers\Api\V1\PasswordResetController;
@@ -16,6 +17,7 @@ use App\Http\Controllers\Api\V1\SignatureAssetController;
 use App\Http\Controllers\Api\V1\VersionPublishController;
 use App\Http\Controllers\Api\V1\VersionSignerController;
 use Illuminate\Support\Facades\Route;
+use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful;
 
 Route::prefix('v1')->group(function (): void {
     Route::prefix('auth')->group(function (): void {
@@ -23,8 +25,17 @@ Route::prefix('v1')->group(function (): void {
         Route::post('login', [AuthController::class, 'login'])->middleware('throttle:auth-login');
         Route::post('logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
 
-        Route::post('password/forgot', [PasswordResetController::class, 'forgot'])->middleware('throttle:auth-register');
-        Route::post('password/reset', [PasswordResetController::class, 'reset'])->middleware('throttle:auth-register');
+        Route::prefix('google')
+            ->middleware(['web', 'throttle:auth-register'])
+            ->withoutMiddleware(EnsureFrontendRequestsAreStateful::class)
+            ->group(function (): void {
+                Route::get('redirect', [GoogleAuthController::class, 'redirect']);
+                Route::get('callback', [GoogleAuthController::class, 'callback']);
+            });
+
+        Route::post('password/forgot', [PasswordResetController::class, 'forgot'])->middleware('throttle:password-forgot');
+        Route::post('password/verify-otp', [PasswordResetController::class, 'verifyOtp'])->middleware('throttle:password-verify');
+        Route::post('password/reset', [PasswordResetController::class, 'reset'])->middleware('throttle:password-reset');
 
         Route::get('email/verify/{userGuid}/{hash}', [EmailVerificationController::class, 'verify'])
             ->middleware(['signed', 'throttle:6,1'])
@@ -35,22 +46,33 @@ Route::prefix('v1')->group(function (): void {
     Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('me', [MeController::class, 'show']);
 
-        Route::get('documents', [DocumentController::class, 'index']);
-        Route::post('documents', [DocumentController::class, 'store']);
-        Route::get('documents/{document}', [DocumentController::class, 'show']);
-        Route::post('documents/{document}/imports', [DocumentImportController::class, 'store'])->middleware('throttle:uploads');
+        Route::prefix('documents')->group(function (): void {
+            Route::get('/', [DocumentController::class, 'index']);
+            Route::post('/', [DocumentController::class, 'store']);
+            Route::get('{document}', [DocumentController::class, 'show']);
+            Route::post('{document}/imports', [DocumentImportController::class, 'store'])->middleware('throttle:uploads');
+        });
 
-        Route::patch('versions/{version}', [DocumentVersionController::class, 'update']);
-        Route::put('versions/{version}/signers', [VersionSignerController::class, 'update']);
-        Route::put('assignments/{assignment}/placeholders', [AssignmentPlaceholderController::class, 'update']);
-        Route::post('versions/{version}/publish', [VersionPublishController::class, 'store'])->middleware('throttle:20,1');
+        Route::prefix('versions')->group(function (): void {
+            Route::patch('{version}', [DocumentVersionController::class, 'update']);
+            Route::put('{version}/signers', [VersionSignerController::class, 'update']);
+            Route::post('{version}/publish', [VersionPublishController::class, 'store'])->middleware('throttle:20,1');
+            Route::get('{version}/pdf', [DocumentPdfController::class, 'show']);
+        });
+
+        Route::prefix('assignments')->group(function (): void {
+            Route::put('{assignment}/placeholders', [AssignmentPlaceholderController::class, 'update']);
+            Route::post('{assignment}/resend-invitation', [InvitationController::class, 'resend'])->middleware('throttle:invitation-resend');
+            Route::post('{assignment}/read-confirmation', [ReadConfirmationController::class, 'store'])->middleware('throttle:30,1');
+            Route::post('{assignment}/signatures', [AssignmentSignatureController::class, 'store'])->middleware('throttle:30,1');
+        });
+
+        Route::prefix('signature-assets')->group(function (): void {
+            Route::get('/', [SignatureAssetController::class, 'index']);
+            Route::post('/', [SignatureAssetController::class, 'store'])->middleware('throttle:uploads');
+            Route::get('{asset}/image', [SignatureAssetController::class, 'image'])->name('signature-assets.image');
+        });
+
         Route::post('invitations/claim', [InvitationController::class, 'claim'])->middleware('throttle:invitations');
-        Route::post('assignments/{assignment}/resend-invitation', [InvitationController::class, 'resend'])->middleware('throttle:invitation-resend');
-        Route::get('versions/{version}/pdf', [DocumentPdfController::class, 'show']);
-        Route::post('assignments/{assignment}/read-confirmation', [ReadConfirmationController::class, 'store'])->middleware('throttle:30,1');
-        Route::post('assignments/{assignment}/signatures', [AssignmentSignatureController::class, 'store'])->middleware('throttle:30,1');
-        Route::get('signature-assets', [SignatureAssetController::class, 'index']);
-        Route::post('signature-assets', [SignatureAssetController::class, 'store'])->middleware('throttle:uploads');
-        Route::get('signature-assets/{asset}/image', [SignatureAssetController::class, 'image'])->name('signature-assets.image');
     });
 });

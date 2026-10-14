@@ -32,6 +32,11 @@ return [
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
         'redirect' => env('GOOGLE_REDIRECT_URI'),
+        'guzzle' => [
+            'connect_timeout' => (float) env('GOOGLE_CONNECT_TIMEOUT', 5),
+            'timeout' => (float) env('GOOGLE_HTTP_TIMEOUT', 10),
+            'force_ip_resolve' => env('GOOGLE_IP_RESOLVE', 'v4'),
+        ],
     ],
 
     'slack' => [

@@ -4,6 +4,12 @@ namespace Tests\Feature;
 
 use App\Models\AuthIdentity;
 use App\Models\User;
+use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Handler\MockHandler;
+use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Middleware;
+use GuzzleHttp\Psr7\Request as GuzzleRequest;
+use GuzzleHttp\Psr7\Response as GuzzleResponse;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Socialite\Contracts\Provider;
 use Laravel\Socialite\Facades\Socialite;
@@ -47,6 +53,71 @@ class GoogleAuthTest extends TestCase
         $this->assertNull($user->password);
         $this->assertDatabaseHas('auth_identities', ['user_guid' => $user->guid, 'provider' => 'google', 'provider_user_id' => 'g-1']);
         $this->assertAuthenticatedAs($user);
+    }
+
+    public function test_google_http_requests_use_bounded_timeouts_and_ipv4(): void
+    {
+        $httpHistory = [];
+        $handler = HandlerStack::create(new MockHandler([
+            new GuzzleResponse(200, [], json_encode(['access_token' => 'test-token', 'expires_in' => 3600])),
+            new GuzzleResponse(200, [], json_encode([
+                'sub' => 'g-http',
+                'email' => 'http@example.com',
+                'email_verified' => true,
+                'name' => 'Budi',
+            ])),
+        ]));
+        $handler->push(Middleware::history($httpHistory));
+        config(['services.google.guzzle.handler' => $handler]);
+
+        $this->withSession(['state' => 'test-state'])
+            ->get(self::CALLBACK.'?state=test-state&code=test-code')
+            ->assertRedirect(config('app.frontend_url').'/');
+
+        $this->assertCount(2, $httpHistory);
+        $this->assertSame('https://oauth2.googleapis.com/token', (string) $httpHistory[0]['request']->getUri());
+        $this->assertSame('https://openidconnect.googleapis.com/v1/userinfo', (string) $httpHistory[1]['request']->getUri());
+        foreach ($httpHistory as $httpRequest) {
+            $this->assertSame(5.0, $httpRequest['options']['connect_timeout']);
+            $this->assertSame(10.0, $httpRequest['options']['timeout']);
+            $this->assertSame('v4', $httpRequest['options']['force_ip_resolve']);
+        }
+
+        $user = User::firstWhere('email', 'http@example.com');
+        $this->assertNotNull($user);
+        $this->assertAuthenticatedAs($user);
+        $this->assertTrue($user->hasVerifiedEmail());
+    }
+
+    public function test_google_connection_timeout_returns_to_login_without_creating_an_account(): void
+    {
+        $handler = new MockHandler([
+            new ConnectException('Connection timed out', new GuzzleRequest('POST', 'https://oauth2.googleapis.com/token')),
+        ]);
+        config(['services.google.guzzle.handler' => HandlerStack::create($handler)]);
+
+        $this->withSession(['state' => 'test-state'])
+            ->get(self::CALLBACK.'?state=test-state&code=test-code')
+            ->assertRedirect(config('app.frontend_url').'/login?error=oauth_failed');
+
+        $this->assertGuest();
+        $this->assertDatabaseCount('users', 0);
+    }
+
+    public function test_invalid_oauth_state_is_rejected_before_contacting_google(): void
+    {
+        $httpHistory = [];
+        $handler = HandlerStack::create(new MockHandler([]));
+        $handler->push(Middleware::history($httpHistory));
+        config(['services.google.guzzle.handler' => $handler]);
+
+        $this->withSession(['state' => 'expected-state'])
+            ->get(self::CALLBACK.'?state=wrong-state&code=test-code')
+            ->assertRedirect(config('app.frontend_url').'/login?error=oauth_failed');
+
+        $this->assertSame([], $httpHistory);
+        $this->assertGuest();
+        $this->assertDatabaseCount('users', 0);
     }
 
     public function test_returning_google_identity_logs_into_same_account(): void

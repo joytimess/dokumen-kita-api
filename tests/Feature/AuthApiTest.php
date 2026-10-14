@@ -3,11 +3,13 @@
 namespace Tests\Feature;
 
 use App\Models\User;
-use Illuminate\Auth\Notifications\ResetPassword;
-use Illuminate\Auth\Notifications\VerifyEmail;
+use App\Notifications\PasswordResetOtp;
+use App\Notifications\VerifyEmail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Notifications\SendQueuedNotifications;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
-use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\URL;
 use Tests\TestCase;
 
@@ -43,6 +45,53 @@ class AuthApiTest extends TestCase
         Notification::assertSentTo($user, VerifyEmail::class);
         $this->app['auth']->forgetGuards();
         $this->getJson('/api/v1/me')->assertOk()->assertJsonPath('data.guid', $user->guid);
+    }
+
+    public function test_register_queues_verification_and_logs_in_without_sending_mail(): void
+    {
+        Queue::fake([SendQueuedNotifications::class]);
+        Mail::fake();
+
+        $this->postJson('/api/v1/auth/register', [
+            'name' => 'Budi',
+            'email' => 'queued@example.com',
+            'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
+        ])->assertCreated()->assertJsonPath('data.email_verified', false);
+
+        $user = User::firstWhere('email', 'queued@example.com');
+        $this->assertNotNull($user);
+        $this->assertNull($user->email_verified_at);
+        Queue::assertPushed(SendQueuedNotifications::class, fn (SendQueuedNotifications $job): bool => $job->notification instanceof VerifyEmail && $job->notifiables->first()->is($user)
+        );
+        Mail::assertNothingOutgoing();
+
+        $this->app['auth']->forgetGuards();
+        $this->getJson('/api/v1/me')->assertOk()->assertJsonPath('data.guid', $user->guid);
+    }
+
+    public function test_resend_queues_verification_without_sending_mail(): void
+    {
+        $user = User::factory()->unverified()->create();
+        Queue::fake([SendQueuedNotifications::class]);
+        Mail::fake();
+
+        $this->actingAs($user)->postJson('/api/v1/auth/email/resend')->assertAccepted();
+
+        Queue::assertPushed(SendQueuedNotifications::class, fn (SendQueuedNotifications $job): bool => $job->notification instanceof VerifyEmail && $job->notifiables->first()->is($user)
+        );
+        Mail::assertNothingOutgoing();
+        $this->assertNull($user->fresh()->email_verified_at);
+    }
+
+    public function test_resend_does_not_queue_mail_for_verified_user(): void
+    {
+        $user = User::factory()->create();
+        Queue::fake();
+
+        $this->actingAs($user)->postJson('/api/v1/auth/email/resend')->assertAccepted();
+
+        Queue::assertNothingPushed();
     }
 
     public function test_register_rejects_duplicate_email_with_error_envelope(): void
@@ -107,6 +156,16 @@ class AuthApiTest extends TestCase
         $this->assertTrue($user->fresh()->hasVerifiedEmail());
     }
 
+    public function test_queued_verification_email_contains_a_valid_signed_guid_link(): void
+    {
+        $user = User::factory()->unverified()->create();
+        $verificationUrl = (new VerifyEmail)->toMail($user)->actionUrl;
+
+        $this->get($verificationUrl)->assertRedirect(config('app.frontend_url').'/email/verified');
+
+        $this->assertTrue($user->fresh()->hasVerifiedEmail());
+    }
+
     public function test_verification_link_with_wrong_hash_or_bad_signature_is_rejected(): void
     {
         $user = User::factory()->unverified()->create();
@@ -130,11 +189,14 @@ class AuthApiTest extends TestCase
         $this->postJson('/api/v1/auth/password/forgot', ['email' => 'unknown@example.com'])->assertAccepted();
         $this->postJson('/api/v1/auth/password/forgot', ['email' => 'a@example.com'])->assertAccepted();
 
-        Notification::assertSentTo($user, ResetPassword::class);
+        Notification::assertSentTo($user, PasswordResetOtp::class);
 
-        $token = Password::createToken($user);
+        $otp = Notification::sent($user, PasswordResetOtp::class)->first()->otp;
+        $token = $this->postJson('/api/v1/auth/password/verify-otp', [
+            'email' => 'a@example.com', 'otp' => $otp,
+        ])->assertOk()->json('data.reset_token');
         $this->postJson('/api/v1/auth/password/reset', [
-            'token' => $token,
+            'reset_token' => $token,
             'email' => 'a@example.com',
             'password' => 'NewPassword123!',
             'password_confirmation' => 'NewPassword123!',
@@ -148,7 +210,7 @@ class AuthApiTest extends TestCase
         User::factory()->create(['email' => 'a@example.com']);
 
         $this->postJson('/api/v1/auth/password/reset', [
-            'token' => 'bad',
+            'reset_token' => str_repeat('a', 64),
             'email' => 'a@example.com',
             'password' => 'NewPassword123!',
             'password_confirmation' => 'NewPassword123!',
