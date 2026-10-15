@@ -3,6 +3,14 @@
         Options -MultiViews -Indexes
     </IfModule>
 
+    Options -Indexes
+
+    <FilesMatch "^(\.env|\.git|composer\.(json|lock)|artisan)$">
+        Require all denied
+    </FilesMatch>
+
+ServerSignature Off
+
     RewriteEngine On
 
     # Handle Authorization Header
