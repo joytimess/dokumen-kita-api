@@ -13,6 +13,8 @@ class ImportDocumentRequest extends FormRequest
     {
         return [
             'file' => ['required', 'file', 'max:'.config('documents.import.max_kilobytes')],
+            'replace_editor_data' => ['sometimes', 'boolean'],
+            'editor_revision' => ['required_if:replace_editor_data,true', 'integer', 'min:1'],
         ];
     }
 }

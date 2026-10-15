@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Jobs\ConvertDocumentImport;
 use App\Jobs\DeliverDocumentEmail;
 use App\Jobs\FinalizeDocument;
 use App\Jobs\GenerateDocumentPreview;
@@ -19,6 +20,12 @@ class ProcessDocumentWork extends Command
 
     public function handle(): int
     {
+        DocumentVersion::where('status', 'draft')->where('conversion_status', 'queued')->whereNotNull('conversion_generation')
+            ->chunkById(100, function (Collection $versions): void {
+                foreach ($versions as $version) {
+                    ConvertDocumentImport::dispatch($version->guid, $version->conversion_generation);
+                }
+            });
         DocumentVersion::where('status', 'draft')->where('preview_status', 'queued')->whereNotNull('preview_generation')
             ->chunkById(100, function (Collection $versions): void {
                 foreach ($versions as $version) {

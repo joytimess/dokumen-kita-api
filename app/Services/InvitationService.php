@@ -31,7 +31,7 @@ class InvitationService
             'version_guid' => $assignment->version_guid,
             'assignment_guid' => $assignment->guid,
             'recipient_email' => $assignment->recipient_email,
-            'notification_type' => $assignment->status === 'ready' ? 'invitation_ready' : 'invitation_waiting',
+            'notification_type' => 'invitation_ready',
             'deduplication_key' => 'invitation:'.$invitation->guid,
             'status' => 'queued',
             'payload' => [
@@ -65,7 +65,7 @@ class InvitationService
             }
 
             $this->workflow->assertCurrent($version);
-            if ($version->status !== VersionStatus::InProgress || ! in_array($assignment->status, ['ready', 'waiting'], true)) {
+            if ($version->status !== VersionStatus::InProgress || $assignment->status !== 'ready') {
                 throw ApiException::conflict('INVITATION_NOT_ACTIVE', 'Undangan ini sudah tidak aktif.');
             }
             if ($assignment->user_guid !== null && $assignment->user_guid !== $actor->guid) {
@@ -88,7 +88,7 @@ class InvitationService
             $this->workflow->assertCurrent($version);
             $locked = $version->assignments()->whereKey($assignment->getKey())->lockForUpdate()->firstOrFail();
 
-            if ($version->status !== VersionStatus::InProgress || ! in_array($locked->status, ['ready', 'waiting'], true)) {
+            if ($version->status !== VersionStatus::InProgress || $locked->status !== 'ready') {
                 throw ApiException::conflict('INVITATION_NOT_ACTIVE', 'Undangan ini sudah tidak aktif.');
             }
 

@@ -107,6 +107,13 @@ class DocumentEmailDeliveryTest extends TestCase
         $future->update(['scheduled_at' => now()->addHour()]);
         $preview = $this->draft($owner, ['preview_status' => 'queued', 'preview_generation' => fake()->uuid()]);
         $final = $this->draft($owner, ['status' => 'finalizing']);
+        EmailNotification::create([
+            'version_guid' => $final->guid,
+            'recipient_email' => $owner->email,
+            'notification_type' => 'version_finalizing',
+            'deduplication_key' => 'finalizing:'.$final->guid,
+            'status' => 'queued',
+        ]);
         $this->draft($owner, ['status' => 'finalizing', 'finalization_error_code' => 'FINALIZATION_FAILED']);
 
         $this->artisan('documents:process')->assertSuccessful();

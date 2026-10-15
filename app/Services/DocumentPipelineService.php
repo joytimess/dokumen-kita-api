@@ -27,6 +27,12 @@ class DocumentPipelineService
             $locked = $this->workflow->lock($version);
             $this->workflow->assertDraft($locked);
             $this->workflow->assertCurrent($locked);
+            if ($locked->conversion_status !== 'none' && $locked->conversion_status !== 'ready') {
+                throw ApiException::conflict('CONVERSION_NOT_READY', 'Tunggu hasil konversi atau perbaiki kegagalannya sebelum membuat preview.');
+            }
+            if ($source === 'upload' && $locked->conversion_status !== 'none') {
+                throw ApiException::conflict('EDITOR_PREVIEW_REQUIRED', 'Preview impor yang dapat diedit harus bersumber dari editor.');
+            }
             if ($source === 'upload' && ! $locked->source_path) {
                 throw new ApiException(422, 'SOURCE_REQUIRED', 'Impor berkas sebelum membuat preview dari upload.');
             }

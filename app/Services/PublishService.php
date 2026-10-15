@@ -34,7 +34,7 @@ class PublishService
 
             $this->workflow->assertDraft($locked);
             if ($locked->document->versions()->where('guid', '!=', $locked->guid)
-                ->whereIn('status', ['preparing', 'in_progress', 'finalizing', 'revision_requested'])->exists()) {
+                ->whereIn('status', ['preparing', 'in_progress', 'finalizing'])->exists()) {
                 throw ApiException::conflict('ACTIVE_VERSION_EXISTS', 'Dokumen masih memiliki versi aktif.');
             }
 
@@ -46,6 +46,10 @@ class PublishService
             }
 
             $this->preview->verify($locked);
+            if ($locked->conversion_status !== 'none'
+                && ($locked->conversion_status !== 'ready' || $locked->preview_source !== 'editor')) {
+                throw ApiException::conflict('EDITOR_PREVIEW_REQUIRED', 'Buat preview dari isi editor terbaru sebelum publish.');
+            }
             $assignments->load('placeholders');
             foreach ($assignments as $assignment) {
                 if ($assignment->placeholders->isEmpty()) {
@@ -70,7 +74,9 @@ class PublishService
 
             foreach ($assignments as $assignment) {
                 $assignment->update(['status' => $assignment->sequence_number === 1 ? 'ready' : 'waiting']);
-                $this->invitations->issue($assignment);
+                if ($assignment->status === 'ready') {
+                    $this->invitations->issue($assignment);
+                }
             }
 
             $this->audit->record('version.published', $locked->document, $locked, $actor, [

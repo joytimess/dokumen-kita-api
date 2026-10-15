@@ -42,6 +42,8 @@ class DocumentService
             $version = $document->versions()->create([
                 'version_number' => 1,
                 'editor_data_json' => $clean,
+                'editor_revision' => 1,
+                'conversion_status' => 'none',
                 'status' => VersionStatus::Draft,
                 'preview_status' => PreviewStatus::None,
             ]);
@@ -66,7 +68,7 @@ class DocumentService
     }
 
     /**
-     * @param  array{title?: string, editor_data?: array<string, mixed>}  $changes
+     * @param  array{title?: string, editor_data?: array<string, mixed>, editor_revision?: int}  $changes
      */
     public function updateDraft(User $actor, DocumentVersion $version, array $changes): DocumentVersion
     {
@@ -77,6 +79,11 @@ class DocumentService
             $locked = DocumentVersion::whereKey($version->getKey())->lockForUpdate()->firstOrFail();
 
             $this->assertDraft($locked);
+            $this->assertCurrent($document, $locked);
+
+            if ($clean !== null && ($changes['editor_revision'] ?? null) !== $locked->editor_revision) {
+                throw ApiException::conflict('EDITOR_REVISION_CONFLICT', 'Draft berubah. Muat ulang editor sebelum menyimpan.');
+            }
 
             $changed = [];
 
@@ -87,6 +94,12 @@ class DocumentService
 
             if ($clean !== null && $clean !== $locked->editor_data_json) {
                 $locked->editor_data_json = $clean;
+                $locked->editor_revision++;
+                if (in_array($locked->conversion_status, ['queued', 'processing'], true)) {
+                    $locked->conversion_status = 'failed';
+                    $locked->conversion_error_code = 'DRAFT_CHANGED';
+                    $locked->conversion_generation = null;
+                }
                 $this->invalidatePreview($locked);
                 $locked->save();
                 $changed[] = 'content';
@@ -103,7 +116,7 @@ class DocumentService
     /**
      * Stores the uploaded PDF/DOCX as the private source of the document's current draft.
      */
-    public function importSource(User $actor, Document $document, UploadedFile $file): DocumentVersion
+    public function importSource(User $actor, Document $document, UploadedFile $file, bool $replaceEditorData = false, ?int $editorRevision = null): DocumentVersion
     {
         $type = $this->inspector->inspect($file);
 
@@ -116,8 +129,8 @@ class DocumentService
         );
 
         try {
-            [$version, $oldPath] = DB::transaction(function () use ($actor, $document, $type, $newPath): array {
-                Document::whereKey($document->getKey())->lockForUpdate()->firstOrFail();
+            [$version, $oldPath] = DB::transaction(function () use ($actor, $document, $type, $newPath, $replaceEditorData, $editorRevision): array {
+                $lockedDocument = Document::whereKey($document->getKey())->lockForUpdate()->firstOrFail();
 
                 $version = DocumentVersion::where('document_guid', $document->guid)
                     ->orderByDesc('version_number')
@@ -125,11 +138,23 @@ class DocumentService
                     ->firstOrFail();
 
                 $this->assertDraft($version);
+                $this->assertCurrent($lockedDocument, $version);
+                if ($editorRevision !== null && $editorRevision !== $version->editor_revision) {
+                    throw ApiException::conflict('EDITOR_REVISION_CONFLICT', 'Draft berubah. Muat ulang editor sebelum mengimpor.');
+                }
+                if (! $replaceEditorData && ($version->editor_data_json['blocks'] ?? []) !== []) {
+                    throw ApiException::conflict('REPLACE_EDITOR_DATA_REQUIRED', 'Konfirmasi penggantian isi draft sebelum mengimpor berkas.');
+                }
 
                 $oldPath = $version->source_path;
 
                 $version->source_type = $type;
                 $version->source_path = $newPath;
+                $version->conversion_status = 'queued';
+                $version->conversion_generation = (string) Str::uuid();
+                $version->conversion_error_code = null;
+                $version->conversion_warnings = null;
+                $version->conversion_page_count = null;
                 $this->invalidatePreview($version);
                 $version->save();
 
@@ -143,7 +168,7 @@ class DocumentService
             throw $e;
         }
 
-        if ($oldPath !== null && $oldPath !== $newPath) {
+        if ($oldPath !== null && $oldPath !== $newPath && ! DocumentVersion::where('source_path', $oldPath)->exists()) {
             $disk->delete($oldPath);
         }
 
@@ -173,6 +198,13 @@ class DocumentService
     {
         if ($version->status !== VersionStatus::Draft) {
             throw ApiException::conflict('VERSION_NOT_EDITABLE', 'Versi ini sudah tidak dapat diubah. Buat revisi untuk mengubah dokumen.');
+        }
+    }
+
+    private function assertCurrent(Document $document, DocumentVersion $version): void
+    {
+        if ($document->versions()->where('version_number', '>', $version->version_number)->lockForUpdate()->exists()) {
+            throw ApiException::conflict('VERSION_CONFLICT', 'Versi ini bukan versi dokumen terkini.');
         }
     }
 }

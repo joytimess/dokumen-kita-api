@@ -51,7 +51,8 @@ class DocumentEmailService
                     return;
                 }
             } elseif (! (($email->notification_type === 'version_finalizing' && $version->status === VersionStatus::Finalizing)
-                || ($email->notification_type === 'version_completed' && $version->status === VersionStatus::Completed))) {
+                || ($email->notification_type === 'version_completed' && $version->status === VersionStatus::Completed)
+                || ($email->notification_type === 'revision_requested' && $version->status === VersionStatus::RevisionRequested))) {
                 $email->update(['status' => 'cancelled', 'payload' => null]);
 
                 return;
@@ -61,6 +62,8 @@ class DocumentEmailService
             try {
                 Notification::route('mail', $email->recipient_email)->notify(new DocumentWorkflowNotification(
                     $email->notification_type, $version->document->title, $version->version_number, $url,
+                    $email->notification_type === 'revision_requested' ? ($email->payload['reason'] ?? null) : null,
+                    $email->notification_type === 'revision_requested' ? ($email->payload['requester'] ?? null) : null,
                 ));
                 $email->fill(['status' => 'sent', 'sent_at' => now(), 'payload' => null, 'last_error_code' => null]);
             } catch (Throwable) {

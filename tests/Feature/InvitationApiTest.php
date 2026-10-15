@@ -37,42 +37,34 @@ class InvitationApiTest extends TestCase
         $this->assertDatabaseHas('signer_assignments', ['guid' => $assignment->guid, 'user_guid' => $recipient->guid, 'claimed_at' => now()->toDateTimeString()]);
         $this->assertSame(1, AuditEvent::where('action', 'invitation.claimed')->count());
         $this->assertSame($manifest, $version->fresh()->manifest_hash);
-        $this->assertDatabaseCount('email_notifications', 2);
+        $this->assertDatabaseCount('email_notifications', 1);
     }
 
-    public function test_pending_recipient_can_claim_but_receives_only_own_status_without_placeholders(): void
+    public function test_pending_recipient_has_no_action_invitation_before_their_turn(): void
     {
         $owner = User::factory()->create();
         $recipient = User::factory()->create(['email' => 'second@example.test']);
         $version = $this->preparedDraft($owner);
         $this->app->make(PublishService::class)->publish($owner, $version);
         $assignment = $version->assignments()->where('sequence_number', 2)->firstOrFail();
-        $token = $this->invitationToken($assignment);
-
-        $this->actingAs($recipient)->postJson('/api/v1/invitations/claim', ['token' => $token])
-            ->assertOk()->assertJsonPath('data.status', 'waiting')->assertJsonMissingPath('data.placeholders');
-
-        $this->getJson("/api/v1/documents/{$version->document_guid}")
-            ->assertOk()->assertJsonCount(1, 'data.current_version.assignments')
-            ->assertJsonPath('data.current_version.assignments.0.guid', $assignment->guid)
-            ->assertJsonMissingPath('data.current_version.assignments.0.placeholders')
-            ->assertJsonMissingPath('data.current_version.editor_data')
-            ->assertJsonMissingPath('data.current_version.preview_page_count');
+        $this->assertDatabaseMissing('email_notifications', ['assignment_guid' => $assignment->guid]);
+        $this->assertSame(0, $assignment->invitationLinks()->count());
+        $this->actingAs($recipient)->getJson("/api/v1/documents/{$version->document_guid}")->assertNotFound();
+        $this->actingAs($owner)->postJson("/api/v1/assignments/{$assignment->guid}/resend-invitation")
+            ->assertConflict()->assertJsonPath('error.code', 'INVITATION_NOT_ACTIVE');
         $this->assertSame('waiting', $assignment->fresh()->status);
         $this->assertSame(1, $version->assignments()->where('status', 'ready')->count());
     }
 
-    public function test_owner_as_last_signer_claims_without_skipping_their_turn(): void
+    public function test_owner_as_last_signer_cannot_claim_before_their_turn(): void
     {
         $owner = User::factory()->create(['email' => 'owner@example.test']);
         $version = $this->preparedDraft($owner, ['first@example.test', 'owner@example.test']);
         $this->app->make(PublishService::class)->publish($owner, $version);
         $assignment = $version->assignments()->where('sequence_number', 2)->firstOrFail();
 
-        $this->actingAs($owner)->postJson('/api/v1/invitations/claim', ['token' => $this->invitationToken($assignment)])
-            ->assertOk()->assertJsonPath('data.status', 'waiting');
-
-        $this->assertDatabaseHas('signer_assignments', ['guid' => $assignment->guid, 'user_guid' => $owner->guid, 'status' => 'waiting']);
+        $this->assertSame(0, $assignment->invitationLinks()->count());
+        $this->assertDatabaseHas('signer_assignments', ['guid' => $assignment->guid, 'user_guid' => null, 'status' => 'waiting']);
     }
 
     public function test_unverified_email_returns_403_without_claiming(): void
@@ -207,8 +199,8 @@ class InvitationApiTest extends TestCase
             ->assertConflict()->assertJsonPath('error.code', 'INVITATION_NOT_ACTIVE');
 
         $this->assertNull($assignment->fresh()->user_guid);
-        $this->assertDatabaseCount('invitation_links', 2);
-        $this->assertDatabaseCount('email_notifications', 2);
+        $this->assertDatabaseCount('invitation_links', 1);
+        $this->assertDatabaseCount('email_notifications', 1);
     }
 
     public function test_old_version_invitation_returns_409_after_new_version_exists(): void
@@ -243,7 +235,7 @@ class InvitationApiTest extends TestCase
         $this->assertDatabaseHas('invitation_links', ['assignment_guid' => $assignment->guid, 'token_hash' => hash('sha256', $oldToken), 'revoked_at' => now()->toDateTimeString()]);
         $this->assertSame('cancelled', $oldNotification->fresh()->status);
         $this->assertNull($oldNotification->fresh()->payload);
-        $this->assertDatabaseCount('email_notifications', 3);
+        $this->assertDatabaseCount('email_notifications', 2);
         $this->assertDatabaseHas('audit_events', ['action' => 'invitation.resent', 'actor_guid' => $owner->guid]);
         $newToken = $this->invitationToken($assignment);
         $this->assertNotSame($oldToken, $newToken);
@@ -263,7 +255,7 @@ class InvitationApiTest extends TestCase
 
         $this->actingAs(User::factory()->create())->postJson("/api/v1/assignments/{$assignment->guid}/resend-invitation")->assertNotFound();
 
-        $this->assertDatabaseCount('invitation_links', 2);
+        $this->assertDatabaseCount('invitation_links', 1);
     }
 
     public function test_resend_is_rate_limited_per_assignment_and_returns_429(): void
@@ -280,6 +272,6 @@ class InvitationApiTest extends TestCase
         $this->postJson("/api/v1/assignments/{$assignment->guid}/resend-invitation")
             ->assertTooManyRequests()->assertJsonPath('error.code', 'TOO_MANY_REQUESTS');
 
-        $this->assertDatabaseCount('invitation_links', 5);
+        $this->assertDatabaseCount('invitation_links', 4);
     }
 }

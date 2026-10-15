@@ -18,8 +18,11 @@ class DocumentImportController extends Controller
     {
         Gate::authorize('manage', $document);
 
-        $version = $this->documents->importSource($request->user(), $document, $request->file('file'));
+        $version = $this->documents->importSource(
+            $request->user(), $document, $request->file('file'), $request->boolean('replace_editor_data'),
+            $request->validated('editor_revision'),
+        );
 
-        return (new DocumentVersionResource($version))->response()->setStatusCode(201);
+        return (new DocumentVersionResource($version))->response()->setStatusCode(202);
     }
 }

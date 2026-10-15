@@ -121,6 +121,7 @@ class DocumentApiTest extends TestCase
 
         $this->actingAs($owner)->patchJson("/api/v1/versions/{$version->guid}", [
             'title' => 'Judul Baru',
+            'editor_revision' => 1,
             'editor_data' => ['blocks' => [['type' => 'header', 'data' => ['text' => 'Halo', 'level' => 9]]]],
         ])->assertOk()
             ->assertJsonPath('data.preview_status', 'stale')
@@ -164,7 +165,7 @@ class DocumentApiTest extends TestCase
             ['type' => 'table', 'data' => ['withHeadings' => true, 'content' => [['<u>a</u>', 'b'], ['c', 'd']]]],
         ]];
 
-        $text = $this->actingAs($owner)->patchJson("/api/v1/versions/{$version->guid}", ['editor_data' => $payload])
+        $text = $this->actingAs($owner)->patchJson("/api/v1/versions/{$version->guid}", ['editor_revision' => 1, 'editor_data' => $payload])
             ->assertOk()
             ->json('data.editor_data.blocks.0.data.text');
 
@@ -182,14 +183,14 @@ class DocumentApiTest extends TestCase
         $owner = User::factory()->create();
         $version = $this->ownedDraft($owner);
 
-        $this->actingAs($owner)->patchJson("/api/v1/versions/{$version->guid}", ['editor_data' => ['blocks' => [['type' => 'embed', 'data' => []]]]])
+        $this->actingAs($owner)->patchJson("/api/v1/versions/{$version->guid}", ['editor_revision' => 1, 'editor_data' => ['blocks' => [['type' => 'embed', 'data' => []]]]])
             ->assertUnprocessable()->assertJsonStructure(['error' => ['errors' => ['editor_data.blocks.0.type']]]);
 
-        $this->actingAs($owner)->patchJson("/api/v1/versions/{$version->guid}", ['editor_data' => ['blocks' => [
+        $this->actingAs($owner)->patchJson("/api/v1/versions/{$version->guid}", ['editor_revision' => 1, 'editor_data' => ['blocks' => [
             ['type' => 'image', 'data' => ['file' => ['url' => 'http://169.254.169.254/latest']]],
         ]]])->assertUnprocessable()->assertJsonStructure(['error' => ['errors' => ['editor_data.blocks.0.data.file.url']]]);
 
-        $this->actingAs($owner)->patchJson("/api/v1/versions/{$version->guid}", ['editor_data' => ['blocks' => [
+        $this->actingAs($owner)->patchJson("/api/v1/versions/{$version->guid}", ['editor_revision' => 1, 'editor_data' => ['blocks' => [
             ['type' => 'image', 'data' => ['file' => ['url' => 'data:image/png;base64,iVBORw0KGgo='], 'caption' => 'ok']],
         ]]])->assertOk();
     }
@@ -201,7 +202,7 @@ class DocumentApiTest extends TestCase
         $version = $this->ownedDraft($owner);
         $block = ['type' => 'paragraph', 'data' => ['text' => 'x']];
 
-        $this->actingAs($owner)->patchJson("/api/v1/versions/{$version->guid}", ['editor_data' => ['blocks' => [$block, $block, $block]]])
+        $this->actingAs($owner)->patchJson("/api/v1/versions/{$version->guid}", ['editor_revision' => 1, 'editor_data' => ['blocks' => [$block, $block, $block]]])
             ->assertUnprocessable();
     }
 
@@ -212,8 +213,9 @@ class DocumentApiTest extends TestCase
         $version = $this->ownedDraft($owner, ['preview_status' => PreviewStatus::Ready]);
 
         $first = $this->actingAs($owner)->postJson("/api/v1/documents/{$version->document_guid}/imports", ['file' => $this->pdf()])
-            ->assertCreated()
+            ->assertAccepted()
             ->assertJsonPath('data.source_type', 'pdf')
+            ->assertJsonPath('data.conversion_status', 'queued')
             ->assertJsonPath('data.preview_status', 'stale')
             ->assertJsonMissingPath('data.source_path');
 
@@ -222,7 +224,7 @@ class DocumentApiTest extends TestCase
         $this->assertStringStartsWith("documents/{$version->document_guid}/sources/", $oldPath);
 
         $this->actingAs($owner)->postJson("/api/v1/documents/{$version->document_guid}/imports", ['file' => $this->docx()])
-            ->assertCreated()->assertJsonPath('data.source_type', 'docx');
+            ->assertAccepted()->assertJsonPath('data.source_type', 'docx');
 
         Storage::disk('local')->assertMissing($oldPath);
         Storage::disk('local')->assertExists($version->fresh()->source_path);

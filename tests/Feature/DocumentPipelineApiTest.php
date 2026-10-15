@@ -62,7 +62,7 @@ class DocumentPipelineApiTest extends TestCase
         $version = $this->draft($owner);
         $this->actingAs($owner)->postJson('/api/v1/versions/'.$version->guid.'/preview', ['source' => 'editor'])->assertAccepted();
         $oldGeneration = $version->fresh()->preview_generation;
-        $this->patchJson('/api/v1/versions/'.$version->guid, ['editor_data' => ['blocks' => [
+        $this->patchJson('/api/v1/versions/'.$version->guid, ['editor_revision' => 1, 'editor_data' => ['blocks' => [
             ['type' => 'paragraph', 'data' => ['text' => 'Updated content']],
         ]]])->assertOk()->assertJsonPath('data.preview_status', 'stale');
         $this->assertNull($version->fresh()->preview_generation);

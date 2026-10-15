@@ -231,6 +231,7 @@ class SigningSetupApiTest extends TestCase
         $assignment = $version->assignments()->firstOrFail();
 
         $this->actingAs($owner)->patchJson("/api/v1/versions/{$version->guid}", [
+            'editor_revision' => 1,
             'editor_data' => ['blocks' => [['type' => 'paragraph', 'data' => ['text' => 'Konten baru']]]],
         ])->assertOk()->assertJsonPath('data.preview_status', 'stale');
         $this->assertNull($version->fresh()->preview_page_count);

@@ -14,6 +14,7 @@ class UpdateVersionRequest extends FormRequest
         return [
             'title' => ['sometimes', 'string', 'max:255'],
             'editor_data' => ['sometimes', 'array'],
+            'editor_revision' => ['required_with:editor_data', 'integer', 'min:1'],
         ];
     }
 }

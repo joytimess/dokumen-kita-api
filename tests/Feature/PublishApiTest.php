@@ -32,12 +32,12 @@ class PublishApiTest extends TestCase
             ->assertJsonMissingPath('data.preview_pdf_path');
 
         $this->postJson("/api/v1/versions/{$version->guid}/publish")->assertOk()->assertJsonPath('data', $first->json('data'));
-        $this->assertDatabaseCount('invitation_links', 2);
-        $this->assertDatabaseCount('email_notifications', 2);
+        $this->assertDatabaseCount('invitation_links', 1);
+        $this->assertDatabaseCount('email_notifications', 1);
         $this->assertDatabaseCount('audit_events', 1);
         $this->assertDatabaseHas('documents', ['guid' => $version->document_guid, 'status' => 'in_progress']);
         $this->assertDatabaseHas('email_notifications', ['notification_type' => 'invitation_ready', 'recipient_email' => 'first@example.test']);
-        $this->assertDatabaseHas('email_notifications', ['notification_type' => 'invitation_waiting', 'recipient_email' => $owner->email]);
+        $this->assertDatabaseMissing('email_notifications', ['notification_type' => 'invitation_waiting', 'recipient_email' => $owner->email]);
         $this->assertSame($path, $version->fresh()->preview_pdf_path);
         $this->assertSame($contentHash, $version->fresh()->content_hash);
         $this->assertNotNull($version->fresh()->manifest_hash);

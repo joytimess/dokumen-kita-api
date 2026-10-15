@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AssignmentPlaceholderController;
+use App\Http\Controllers\Api\V1\AssignmentRevisionController;
 use App\Http\Controllers\Api\V1\AssignmentSignatureController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\DocumentController;
@@ -14,10 +15,12 @@ use App\Http\Controllers\Api\V1\MeController;
 use App\Http\Controllers\Api\V1\PasswordResetController;
 use App\Http\Controllers\Api\V1\ReadConfirmationController;
 use App\Http\Controllers\Api\V1\SignatureAssetController;
+use App\Http\Controllers\Api\V1\VersionConversionController;
 use App\Http\Controllers\Api\V1\VersionFinalizationController;
 use App\Http\Controllers\Api\V1\VersionPreviewController;
 use App\Http\Controllers\Api\V1\VersionPublishController;
 use App\Http\Controllers\Api\V1\VersionSignerController;
+use App\Http\Controllers\Api\V1\VersionSourceController;
 use Illuminate\Support\Facades\Route;
 use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful;
 
@@ -58,6 +61,8 @@ Route::prefix('v1')->group(function (): void {
         Route::prefix('versions')->group(function (): void {
             Route::get('{version}', [DocumentVersionController::class, 'show']);
             Route::post('{version}/preview', [VersionPreviewController::class, 'store'])->middleware('throttle:10,1');
+            Route::post('{version}/convert-import', [VersionConversionController::class, 'store'])->middleware('throttle:10,1');
+            Route::get('{version}/source', [VersionSourceController::class, 'show']);
             Route::post('{version}/finalize', [VersionFinalizationController::class, 'store'])->middleware('throttle:10,1');
             Route::patch('{version}', [DocumentVersionController::class, 'update']);
             Route::put('{version}/signers', [VersionSignerController::class, 'update']);
@@ -70,6 +75,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('{assignment}/resend-invitation', [InvitationController::class, 'resend'])->middleware('throttle:invitation-resend');
             Route::post('{assignment}/read-confirmation', [ReadConfirmationController::class, 'store'])->middleware('throttle:30,1');
             Route::post('{assignment}/signatures', [AssignmentSignatureController::class, 'store'])->middleware('throttle:30,1');
+            Route::post('{assignment}/revision-request', [AssignmentRevisionController::class, 'store'])->middleware('throttle:10,1');
         });
 
         Route::prefix('signature-assets')->group(function (): void {

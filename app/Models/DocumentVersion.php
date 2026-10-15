@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['document_guid', 'version_number', 'editor_data_json', 'source_type', 'source_path', 'preview_pdf_path', 'preview_status', 'preview_page_count', 'final_pdf_path', 'content_hash', 'manifest_hash', 'final_pdf_hash', 'status', 'published_at', 'preview_generation', 'preview_source', 'preview_error_code', 'finalization_error_code'])]
+#[Fillable(['document_guid', 'version_number', 'editor_data_json', 'source_type', 'source_path', 'preview_pdf_path', 'preview_status', 'preview_page_count', 'final_pdf_path', 'content_hash', 'manifest_hash', 'final_pdf_hash', 'status', 'published_at', 'preview_generation', 'preview_source', 'preview_error_code', 'finalization_error_code', 'conversion_status', 'conversion_generation', 'conversion_error_code', 'conversion_warnings', 'conversion_page_count', 'editor_revision'])]
 class DocumentVersion extends Model
 {
     /** @use HasFactory<DocumentVersionFactory> */
@@ -32,6 +32,9 @@ class DocumentVersion extends Model
             'published_at' => 'datetime',
             'version_number' => 'integer',
             'preview_page_count' => 'integer',
+            'conversion_warnings' => 'array',
+            'conversion_page_count' => 'integer',
+            'editor_revision' => 'integer',
         ];
     }
 

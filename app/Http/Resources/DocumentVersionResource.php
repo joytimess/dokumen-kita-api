@@ -32,6 +32,12 @@ class DocumentVersionResource extends ApiResource
             'finalization_error_code' => $this->when($isOwner, $this->finalization_error_code),
             'content_hash' => $this->when($request->user()?->can('viewPdf', $this->resource), $this->content_hash),
             'preview_page_count' => $this->when($isOwner, $this->preview_page_count),
+            'conversion_status' => $this->when($isOwner, $this->conversion_status),
+            'conversion_generation' => $this->when($isOwner, $this->conversion_generation),
+            'conversion_error_code' => $this->when($isOwner, $this->conversion_error_code),
+            'conversion_warnings' => $this->when($isOwner, $this->conversion_warnings),
+            'conversion_page_count' => $this->when($isOwner, $this->conversion_page_count),
+            'editor_revision' => $this->when($isOwner, $this->editor_revision),
             'assignments' => $this->whenLoaded('assignments', function () use ($isOwner, $request) {
                 $assignments = $isOwner ? $this->assignments : $this->assignments->where('user_guid', $request->user()?->guid)->values();
                 foreach ($assignments as $assignment) {

@@ -13,6 +13,8 @@ return [
         'queue' => env('DOCUMENT_QUEUE', 'documents'),
         'max_pages' => 200,
         'libreoffice_binary' => env('LIBREOFFICE_BINARY'),
+        'pdftotext_binary' => env('PDFTOTEXT_BINARY', 'pdftotext'),
+        'binary_timeout' => (int) env('DOCUMENT_BINARY_TIMEOUT', 60),
     ],
 
     'invitations' => [

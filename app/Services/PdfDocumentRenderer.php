@@ -1,0 +1,215 @@
+<?php
+
+namespace App\Services;
+
+use App\Enums\SourceType;
+use App\Exceptions\ApiException;
+use App\Models\DocumentVersion;
+use App\Models\SignaturePlaceholder;
+use Dompdf\Dompdf;
+use Dompdf\Options;
+use Illuminate\Support\Facades\Storage;
+use setasign\Fpdi\Fpdi;
+use setasign\Fpdi\PdfParser\StreamReader;
+use Throwable;
+
+class PdfDocumentRenderer
+{
+    public function __construct(
+        private readonly EditorDataSanitizer $sanitizer,
+        private readonly StoredPreviewSnapshot $snapshot,
+        private readonly SignatureAssetService $assets,
+    ) {}
+
+    /** @return array{bytes: string, pages: int} */
+    public function preview(DocumentVersion $version): array
+    {
+        if ($version->preview_source === 'upload') {
+            if ($version->source_type !== SourceType::Pdf || $version->source_path === null) {
+                throw new ApiException(422, 'EDITOR_PREVIEW_REQUIRED', 'Konversi sumber ke editor sebelum membuat preview.');
+            }
+            $bytes = Storage::disk(config('documents.disk'))->get($version->source_path);
+
+            return ['bytes' => $bytes, 'pages' => $this->pageCount($bytes)];
+        }
+
+        $editor = $this->sanitizer->sanitize($version->editor_data_json ?? ['blocks' => []]);
+        $options = new Options;
+        $options->set('isRemoteEnabled', false);
+        $options->set('isPhpEnabled', false);
+        $options->set('isJavascriptEnabled', false);
+        $options->set('defaultFont', 'DejaVu Sans');
+        $pdf = new Dompdf($options);
+        $pdf->setPaper('A4');
+        $pdf->loadHtml($this->html($editor), 'UTF-8');
+        try {
+            $pdf->render();
+            $bytes = $pdf->output();
+            $pages = $pdf->getCanvas()->get_page_count();
+        } catch (Throwable) {
+            throw new ApiException(422, 'PREVIEW_RENDER_FAILED', 'Isi editor tidak dapat dirender menjadi PDF.');
+        }
+        if (! str_starts_with($bytes, '%PDF-') || $pages < 1) {
+            throw new ApiException(422, 'PREVIEW_RENDER_FAILED', 'Hasil preview PDF tidak valid.');
+        }
+        $this->assertPageLimit($pages);
+
+        return ['bytes' => $bytes, 'pages' => $pages];
+    }
+
+    public function finalize(DocumentVersion $version): string
+    {
+        $this->snapshot->verify($version);
+        $bytes = Storage::disk(config('documents.disk'))->get($version->preview_pdf_path);
+        $pdf = new Fpdi;
+        try {
+            $pageCount = $pdf->setSourceFile(StreamReader::createByString($bytes));
+            if ($pageCount !== $version->preview_page_count) {
+                throw ApiException::conflict('PREVIEW_PAGE_MISMATCH', 'Jumlah halaman preview berubah.');
+            }
+            $this->assertPageLimit($pageCount);
+            $placements = [];
+            foreach ($version->assignments as $assignment) {
+                $signature = $assignment->signature;
+                $asset = $signature?->asset;
+                if ($assignment->status !== 'signed' || $signature === null || $asset === null
+                    || $asset->user_guid !== $assignment->user_guid
+                    || ! hash_equals($version->content_hash, $signature->version_content_hash)) {
+                    throw ApiException::conflict('SIGNATURE_SNAPSHOT_MISMATCH', 'Persetujuan tanda tangan tidak lengkap atau tidak cocok.');
+                }
+                $this->assets->verify($asset);
+                foreach ($assignment->placeholders as $placeholder) {
+                    if ($placeholder->page_number < 1 || $placeholder->page_number > $pageCount) {
+                        throw ApiException::conflict('PLACEHOLDER_PAGE_INVALID', 'Posisi tanda tangan tidak cocok dengan halaman PDF.');
+                    }
+                    $placements[$placeholder->page_number][] = [$placeholder, $asset];
+                }
+            }
+
+            $temporary = [];
+            try {
+                for ($page = 1; $page <= $pageCount; $page++) {
+                    $template = $pdf->importPage($page);
+                    $size = $pdf->getTemplateSize($template);
+                    $pdf->AddPage($size['orientation'], [$size['width'], $size['height']]);
+                    $pdf->useTemplate($template, 0, 0, $size['width'], $size['height']);
+                    foreach ($placements[$page] ?? [] as [$placeholder, $asset]) {
+                        $path = $temporary[$asset->guid] ?? null;
+                        if ($path === null) {
+                            $path = tempnam(sys_get_temp_dir(), 'dokumen-signature-');
+                            if ($path === false) {
+                                throw new ApiException(503, 'FINALIZATION_UNAVAILABLE', 'Ruang kerja PDF final tidak tersedia.');
+                            }
+                            file_put_contents($path, Storage::disk(config('documents.disk'))->get($asset->file_path));
+                            $temporary[$asset->guid] = $path;
+                        }
+                        $this->placeImage($pdf, $path, $placeholder, $asset->width, $asset->height, $size['width'], $size['height']);
+                    }
+                }
+
+                $final = $pdf->Output('S');
+            } finally {
+                foreach ($temporary as $path) {
+                    @unlink($path);
+                }
+            }
+        } catch (ApiException $exception) {
+            throw $exception;
+        } catch (Throwable) {
+            throw new ApiException(422, 'FINALIZATION_RENDER_FAILED', 'PDF final tidak dapat dibentuk dari snapshot.');
+        }
+        if (! str_starts_with($final, '%PDF-')) {
+            throw new ApiException(422, 'FINALIZATION_RENDER_FAILED', 'Hasil PDF final tidak valid.');
+        }
+
+        return $final;
+    }
+
+    private function placeImage(Fpdi $pdf, string $path, SignaturePlaceholder $placeholder, int $imageWidth, int $imageHeight, float $pageWidth, float $pageHeight): void
+    {
+        $boxWidth = $placeholder->width * $pageWidth;
+        $boxHeight = $placeholder->height * $pageHeight;
+        $ratio = $imageWidth / $imageHeight;
+        $width = min($boxWidth, $boxHeight * $ratio);
+        $height = $width / $ratio;
+        $x = $placeholder->x * $pageWidth + ($boxWidth - $width) / 2;
+        $y = $placeholder->y * $pageHeight + ($boxHeight - $height) / 2;
+        $pdf->Image($path, $x, $y, $width, $height, 'PNG');
+    }
+
+    /** @param array<string, mixed> $editor */
+    private function html(array $editor): string
+    {
+        $body = '';
+        foreach ($editor['blocks'] as $block) {
+            $data = $block['data'];
+            $body .= match ($block['type']) {
+                'paragraph' => '<p>'.$data['text'].'</p>',
+                'header' => '<h'.$data['level'].'>'.$data['text'].'</h'.$data['level'].'>',
+                'list' => $this->listHtml($data['items'], $data['style']),
+                'table' => $this->tableHtml($data),
+                'image' => '<figure><img src="'.$data['file']['url'].'" alt=""/><figcaption>'.$data['caption'].'</figcaption></figure>',
+            };
+        }
+
+        return '<!doctype html><html><head><meta charset="utf-8"><style>'
+            .'@page{margin:20mm 18mm}body{font-family:DejaVu Sans,sans-serif;font-size:11pt;line-height:1.5;color:#111}'
+            .'p{margin:0 0 10pt}h1,h2,h3,h4,h5,h6{margin:12pt 0 7pt;page-break-after:avoid}'
+            .'table{border-collapse:collapse;width:100%;margin:8pt 0}td,th{border:1px solid #777;padding:5pt;vertical-align:top}'
+            .'img,figure{max-width:100%}figure{margin:8pt 0;text-align:center}figure img{max-width:100%;max-height:220mm}'
+            .'figcaption{font-size:9pt;color:#555}li{margin-bottom:3pt}'
+            .'</style></head><body>'.$body.'</body></html>';
+    }
+
+    /** @param list<mixed> $items */
+    private function listHtml(array $items, string $style): string
+    {
+        $tag = $style === 'ordered' ? 'ol' : 'ul';
+        $html = '<'.$tag.'>';
+        foreach ($items as $item) {
+            $html .= '<li>'.(is_string($item) ? $item : $item['content']);
+            if (is_array($item) && $item['items'] !== []) {
+                $html .= $this->listHtml($item['items'], $style);
+            }
+            $html .= '</li>';
+        }
+
+        return $html.'</'.$tag.'>';
+    }
+
+    /** @param array<string, mixed> $data */
+    private function tableHtml(array $data): string
+    {
+        $html = '<table>';
+        foreach ($data['content'] as $index => $row) {
+            $cell = $data['withHeadings'] && $index === 0 ? 'th' : 'td';
+            $html .= '<tr>';
+            foreach ($row as $value) {
+                $html .= '<'.$cell.'>'.$value.'</'.$cell.'>';
+            }
+            $html .= '</tr>';
+        }
+
+        return $html.'</table>';
+    }
+
+    private function pageCount(string $bytes): int
+    {
+        try {
+            $pdf = new Fpdi;
+            $pages = $pdf->setSourceFile(StreamReader::createByString($bytes));
+        } catch (Throwable) {
+            throw new ApiException(422, 'PDF_SOURCE_INVALID', 'PDF sumber tidak dapat dibaca.');
+        }
+        $this->assertPageLimit($pages);
+
+        return $pages;
+    }
+
+    private function assertPageLimit(int $pages): void
+    {
+        if ($pages < 1 || $pages > (int) config('documents.processing.max_pages')) {
+            throw new ApiException(422, 'DOCUMENT_PAGE_LIMIT', 'Jumlah halaman melewati batas.');
+        }
+    }
+}
