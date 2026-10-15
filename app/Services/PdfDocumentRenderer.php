@@ -25,6 +25,9 @@ class PdfDocumentRenderer
     public function preview(DocumentVersion $version): array
     {
         if ($version->preview_source === 'upload') {
+            if ($version->letterhead !== null || $version->footer !== null) {
+                throw new ApiException(422, 'EDITOR_PREVIEW_REQUIRED', 'Kop atau footer memerlukan preview dari editor agar isi tidak tertimpa.');
+            }
             if ($version->source_type !== SourceType::Pdf || $version->source_path === null) {
                 throw new ApiException(422, 'EDITOR_PREVIEW_REQUIRED', 'Konversi sumber ke editor sebelum membuat preview.');
             }
@@ -41,7 +44,7 @@ class PdfDocumentRenderer
         $options->set('defaultFont', 'DejaVu Sans');
         $pdf = new Dompdf($options);
         $pdf->setPaper('A4');
-        $pdf->loadHtml($this->html($editor), 'UTF-8');
+        $pdf->loadHtml($this->html($editor, $version->letterhead !== null || $version->footer !== null), 'UTF-8');
         try {
             $pdf->render();
             $bytes = $pdf->output();
@@ -53,6 +56,10 @@ class PdfDocumentRenderer
             throw new ApiException(422, 'PREVIEW_RENDER_FAILED', 'Hasil preview PDF tidak valid.');
         }
         $this->assertPageLimit($pages);
+
+        if ($version->letterhead !== null || $version->footer !== null) {
+            $bytes = $this->decorate($bytes, $pages, $version);
+        }
 
         return ['bytes' => $bytes, 'pages' => $pages];
     }
@@ -138,7 +145,7 @@ class PdfDocumentRenderer
     }
 
     /** @param array<string, mixed> $editor */
-    private function html(array $editor): string
+    private function html(array $editor, bool $hasDecorations = false): string
     {
         $body = '';
         foreach ($editor['blocks'] as $block) {
@@ -153,7 +160,8 @@ class PdfDocumentRenderer
         }
 
         return '<!doctype html><html><head><meta charset="utf-8"><style>'
-            .'@page{margin:20mm 18mm}body{font-family:DejaVu Sans,sans-serif;font-size:11pt;line-height:1.5;color:#111}'
+            .($hasDecorations ? '@page{margin:45mm 18mm}' : '@page{margin:20mm 18mm}')
+            .'body{font-family:DejaVu Sans,sans-serif;font-size:11pt;line-height:1.5;color:#111}'
             .'p{margin:0 0 10pt}h1,h2,h3,h4,h5,h6{margin:12pt 0 7pt;page-break-after:avoid}'
             .'table{border-collapse:collapse;width:100%;margin:8pt 0}td,th{border:1px solid #777;padding:5pt;vertical-align:top}'
             .'table.table-without-borders td,table.table-without-borders th{border:0 none transparent}'
@@ -205,6 +213,84 @@ class PdfDocumentRenderer
         $this->assertPageLimit($pages);
 
         return $pages;
+    }
+
+    private function decorate(string $bytes, int $pages, DocumentVersion $version): string
+    {
+        foreach (['letterhead', 'footer'] as $kind) {
+            $decoration = $version->{$kind};
+            if ($decoration === null || $decoration['pages']['mode'] === 'all') {
+                continue;
+            }
+            foreach ($decoration['pages']['ranges'] as [$start, $end]) {
+                if ($end > $pages) {
+                    throw new ApiException(422, 'DECORATION_PAGE_OUT_OF_RANGE', "Rentang {$kind} {$start}-{$end} melebihi {$pages} halaman preview.");
+                }
+            }
+        }
+
+        $pdf = new Fpdi;
+        $temporary = [];
+        try {
+            $pdf->setSourceFile(StreamReader::createByString($bytes));
+            foreach (['letterhead', 'footer'] as $kind) {
+                $decoration = $version->{$kind};
+                if ($decoration === null) {
+                    continue;
+                }
+                $path = tempnam(sys_get_temp_dir(), 'dokumen-decoration-');
+                if ($path === false) {
+                    throw new ApiException(503, 'PREVIEW_UNAVAILABLE', 'Ruang kerja preview tidak tersedia.');
+                }
+                $temporary[$kind] = $path;
+                $image = Storage::disk(config('documents.disk'))->get($decoration['path']);
+                if (file_put_contents($path, $image) === false) {
+                    throw new ApiException(503, 'PREVIEW_UNAVAILABLE', 'Ruang kerja preview tidak tersedia.');
+                }
+            }
+            for ($page = 1; $page <= $pages; $page++) {
+                $template = $pdf->importPage($page);
+                $size = $pdf->getTemplateSize($template);
+                $pdf->AddPage($size['orientation'], [$size['width'], $size['height']]);
+                $pdf->useTemplate($template, 0, 0, $size['width'], $size['height']);
+                foreach (['letterhead', 'footer'] as $kind) {
+                    $decoration = $version->{$kind};
+                    if ($decoration === null || ! $this->selectedPage($decoration['pages'], $page)) {
+                        continue;
+                    }
+                    $width = min($size['width'] - 36, $decoration['width'] * 25.4 / 96, 30 * $decoration['width'] / $decoration['height']);
+                    $height = $width * $decoration['height'] / $decoration['width'];
+                    $x = ($size['width'] - $width) / 2;
+                    $y = $kind === 'letterhead' ? 7 : $size['height'] - 7 - $height;
+                    $pdf->Image($temporary[$kind], $x, $y, $width, $height, 'PNG');
+                }
+            }
+
+            return $pdf->Output('S');
+        } catch (ApiException $exception) {
+            throw $exception;
+        } catch (Throwable) {
+            throw new ApiException(422, 'DECORATION_RENDER_FAILED', 'Kop atau footer tidak dapat dirender pada PDF.');
+        } finally {
+            foreach ($temporary as $path) {
+                @unlink($path);
+            }
+        }
+    }
+
+    /** @param array<string, mixed> $selection */
+    private function selectedPage(array $selection, int $page): bool
+    {
+        if ($selection['mode'] === 'all') {
+            return true;
+        }
+        foreach ($selection['ranges'] as [$start, $end]) {
+            if ($page >= $start && $page <= $end) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function assertPageLimit(int $pages): void

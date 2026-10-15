@@ -36,6 +36,9 @@ class DocumentPipelineService
             if ($source === 'upload' && ! $locked->source_path) {
                 throw new ApiException(422, 'SOURCE_REQUIRED', 'Impor berkas sebelum membuat preview dari upload.');
             }
+            if ($source === 'upload' && ($locked->letterhead !== null || $locked->footer !== null)) {
+                throw new ApiException(422, 'EDITOR_PREVIEW_REQUIRED', 'Kop atau footer memerlukan preview dari editor agar isi tidak tertimpa.');
+            }
             if ($locked->preview_status === PreviewStatus::Queued && $locked->preview_source === $source) {
                 return $locked;
             }
@@ -44,6 +47,7 @@ class DocumentPipelineService
                 'preview_source' => $source,
                 'preview_status' => PreviewStatus::Queued,
                 'preview_error_code' => null,
+                'preview_error_message' => null,
                 'content_hash' => null,
                 'preview_page_count' => null,
             ]);

@@ -46,6 +46,8 @@ class RevisionService
             $draft = $version->document->versions()->create([
                 'version_number' => $version->version_number + 1,
                 'editor_data_json' => $version->editor_data_json,
+                'letterhead' => $version->letterhead,
+                'footer' => $version->footer,
                 'editor_revision' => 1,
                 'conversion_status' => $version->conversion_status === 'ready' ? 'ready' : 'none',
                 'conversion_warnings' => $version->conversion_warnings,

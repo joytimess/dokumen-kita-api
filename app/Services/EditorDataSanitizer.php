@@ -67,6 +67,18 @@ class EditorDataSanitizer
         }
 
         $data = $block['data'];
+        $allowedKeys = match ($type) {
+            'paragraph' => ['text'],
+            'header' => ['text', 'level'],
+            'list' => ['style', 'items'],
+            'table' => ['withHeadings', 'showBorders', 'content'],
+            'image' => ['file', 'caption'],
+        };
+        foreach (array_keys($data) as $key) {
+            if (! in_array($key, $allowedKeys, true)) {
+                $this->fail("$path.data.$key", 'Atribut editor ini belum didukung pada PDF.');
+            }
+        }
 
         return ['type' => $type, 'data' => match ($type) {
             'paragraph' => ['text' => $this->text($data['text'] ?? '', "$path.data.text")],
@@ -135,6 +147,9 @@ class EditorDataSanitizer
      */
     private function sanitizeTable(array $data, string $path): array
     {
+        if (array_key_exists('withHeadings', $data) && ! is_bool($data['withHeadings'])) {
+            $this->fail("$path.data.withHeadings", 'Pilihan kepala tabel harus berupa boolean.');
+        }
         if (array_key_exists('showBorders', $data) && ! is_bool($data['showBorders'])) {
             $this->fail("$path.data.showBorders", 'Pilihan garis tabel harus berupa boolean.');
         }
@@ -152,7 +167,17 @@ class EditorDataSanitizer
                 $this->fail("$path.data.content.$r", 'Baris tabel tidak valid atau terlalu lebar.');
             }
 
-            $clean[] = array_map(fn ($cell, $c) => $this->text($cell ?? '', "$path.data.content.$r.$c"), array_values($row), array_keys(array_values($row)));
+            $cleanRow = [];
+            foreach (array_values($row) as $column => $cell) {
+                if (is_array($cell) || is_object($cell)) {
+                    $this->fail("$path.data.content.$r.$column", 'Sel tabel kompleks belum didukung; gunakan satu teks tanpa gambar atau gabungan sel.');
+                }
+                if (is_string($cell) && preg_match('/<\/?(?:p|div|img|table)\b/i', $cell)) {
+                    $this->fail("$path.data.content.$r.$column", 'Sel tabel hanya mendukung satu teks tanpa gambar atau paragraf bertingkat.');
+                }
+                $cleanRow[] = $this->text($cell ?? '', "$path.data.content.$r.$column");
+            }
+            $clean[] = $cleanRow;
         }
 
         return [
@@ -183,6 +208,9 @@ class EditorDataSanitizer
     {
         if (! is_string($value) || mb_strlen($value) > config('documents.editor.max_text_length')) {
             $this->fail($path, 'Teks tidak valid atau terlalu panjang.');
+        }
+        if (preg_match('/<\/?(?:s|del|strike|sub|sup|span|font)\b/i', $value)) {
+            $this->fail($path, 'Format teks ini belum didukung pada PDF.');
         }
 
         $text = strip_tags($value, self::INLINE_TAGS);

@@ -29,6 +29,7 @@ class DocumentVersionResource extends ApiResource
             'preview_status' => $this->preview_status,
             'preview_source' => $this->when($isOwner, $this->preview_source),
             'preview_error_code' => $this->when($isOwner, $this->preview_error_code),
+            'preview_error_message' => $this->when($isOwner, $this->preview_error_message),
             'finalization_error_code' => $this->when($isOwner, $this->finalization_error_code),
             'content_hash' => $this->when($request->user()?->can('viewPdf', $this->resource), $this->content_hash),
             'preview_page_count' => $this->when($isOwner, $this->preview_page_count),
@@ -49,9 +50,25 @@ class DocumentVersionResource extends ApiResource
             'source_type' => $this->when($isOwner, $this->source_type),
             'has_source' => $this->when($isOwner, $this->source_path !== null),
             'editor_data' => $this->when($isOwner, $this->editor_data_json),
+            'letterhead' => $this->when($isOwner, $this->decoration('letterhead')),
+            'footer' => $this->when($isOwner, $this->decoration('footer')),
             'published_at' => $this->published_at,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
+        ];
+    }
+
+    /** @return array<string, mixed>|null */
+    private function decoration(string $kind): ?array
+    {
+        $data = $this->{$kind};
+        if ($data === null) {
+            return null;
+        }
+
+        return [
+            'image_url' => route('versions.decorations.image', ['version' => $this->guid, 'kind' => $kind]),
+            'pages' => $data['pages'],
         ];
     }
 }

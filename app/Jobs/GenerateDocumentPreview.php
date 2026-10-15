@@ -48,6 +48,10 @@ class GenerateDocumentPreview implements ShouldBeUnique, ShouldQueue
 
     public function failed(?Throwable $exception): void
     {
-        DocumentVersion::where('guid', $this->versionGuid)->where('status', 'draft')->where('preview_status', 'queued')->where('preview_generation', $this->generation)->update(['preview_status' => 'failed', 'preview_error_code' => $exception instanceof ApiException ? $exception->errorCode : 'PREVIEW_FAILED']);
+        DocumentVersion::where('guid', $this->versionGuid)->where('status', 'draft')->where('preview_status', 'queued')->where('preview_generation', $this->generation)->update([
+            'preview_status' => 'failed',
+            'preview_error_code' => $exception instanceof ApiException ? $exception->errorCode : 'PREVIEW_FAILED',
+            'preview_error_message' => $exception instanceof ApiException ? $exception->getMessage() : 'Preview gagal dibuat.',
+        ]);
     }
 }

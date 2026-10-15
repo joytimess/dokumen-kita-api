@@ -182,6 +182,7 @@ class DocumentService
     {
         $version->preview_generation = null;
         $version->preview_error_code = null;
+        $version->preview_error_message = null;
         if ($version->preview_status !== PreviewStatus::None) {
             $version->preview_status = PreviewStatus::Stale;
         }

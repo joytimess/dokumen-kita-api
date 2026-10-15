@@ -21,7 +21,10 @@ class RevisionWorkflowTest extends TestCase
         $version = $this->publishedVersion($owner, [$first, $second]);
         $version->update(['editor_data_json' => ['blocks' => [['type' => 'table', 'data' => [
             'withHeadings' => false, 'showBorders' => false, 'content' => [['Isi']],
-        ]]]]]);
+        ]]]], 'letterhead' => [
+            'path' => 'documents/kop.png', 'mime' => 'image/png', 'width' => 400, 'height' => 80,
+            'pages' => ['mode' => 'all'],
+        ]]);
         $firstAssignment = $version->assignments()->where('sequence_number', 1)->firstOrFail();
         $secondAssignment = $version->assignments()->where('sequence_number', 2)->firstOrFail();
         ReadConfirmation::factory()->create(['assignment_guid' => $firstAssignment->guid, 'version_content_hash' => $version->content_hash]);
@@ -43,6 +46,7 @@ class RevisionWorkflowTest extends TestCase
         $this->assertSame(2, $draft->version_number);
         $this->assertSame(VersionStatus::Draft, $draft->status);
         $this->assertSame(false, $draft->editor_data_json['blocks'][0]['data']['showBorders']);
+        $this->assertSame($version->letterhead, $draft->letterhead);
         $this->assertSame(VersionStatus::Draft, $version->document->fresh()->status);
         $this->assertSame(1, $firstAssignment->signature()->count());
         $this->assertSame(0, $draft->assignments()->whereHas('signature')->count());

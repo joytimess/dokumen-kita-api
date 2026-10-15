@@ -48,4 +48,10 @@ return [
         'max_image_data_length' => 700_000,
     ],
 
+    'page_decorations' => [
+        'max_kilobytes' => 2048,
+        'max_width' => 1200,
+        'max_height' => 400,
+    ],
+
 ];

@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\V1\PasswordResetController;
 use App\Http\Controllers\Api\V1\ReadConfirmationController;
 use App\Http\Controllers\Api\V1\SignatureAssetController;
 use App\Http\Controllers\Api\V1\VersionConversionController;
+use App\Http\Controllers\Api\V1\VersionDecorationController;
 use App\Http\Controllers\Api\V1\VersionFinalizationController;
 use App\Http\Controllers\Api\V1\VersionPreviewController;
 use App\Http\Controllers\Api\V1\VersionPublishController;
@@ -65,6 +66,10 @@ Route::prefix('v1')->group(function (): void {
             Route::get('{version}/source', [VersionSourceController::class, 'show']);
             Route::post('{version}/finalize', [VersionFinalizationController::class, 'store'])->middleware('throttle:10,1');
             Route::patch('{version}', [DocumentVersionController::class, 'update']);
+            Route::post('{version}/decorations/{kind}', [VersionDecorationController::class, 'update'])->whereIn('kind', ['letterhead', 'footer'])->middleware('throttle:uploads');
+            Route::patch('{version}/decorations/{kind}', [VersionDecorationController::class, 'update'])->whereIn('kind', ['letterhead', 'footer']);
+            Route::delete('{version}/decorations/{kind}', [VersionDecorationController::class, 'destroy'])->whereIn('kind', ['letterhead', 'footer']);
+            Route::get('{version}/decorations/{kind}/image', [VersionDecorationController::class, 'image'])->whereIn('kind', ['letterhead', 'footer'])->name('versions.decorations.image');
             Route::put('{version}/signers', [VersionSignerController::class, 'update']);
             Route::post('{version}/publish', [VersionPublishController::class, 'store'])->middleware('throttle:20,1');
             Route::get('{version}/pdf', [DocumentPdfController::class, 'show']);

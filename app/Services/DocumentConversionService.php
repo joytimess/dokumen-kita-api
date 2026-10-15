@@ -98,6 +98,8 @@ class DocumentConversionService
                 'conversion_warnings' => $result['warnings'],
                 'conversion_page_count' => $result['pages'],
                 'preview_generation' => null,
+                'preview_error_code' => null,
+                'preview_error_message' => null,
                 'preview_status' => $version->preview_status->value === 'none' ? 'none' : 'stale',
                 'content_hash' => null,
                 'preview_page_count' => null,

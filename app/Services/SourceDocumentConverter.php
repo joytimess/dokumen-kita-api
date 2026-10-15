@@ -217,11 +217,13 @@ class SourceDocumentConverter
             $xpath = new DOMXPath($document);
             $xpath->registerNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
             $blocks = [];
+            $warnings = ['DOCX_LAYOUT_APPROXIMATE'];
             foreach ($xpath->query('/w:document/w:body/*') ?: [] as $element) {
                 if (! $element instanceof DOMElement) {
                     continue;
                 }
                 if ($element->localName === 'tbl') {
+                    $warnings[] = 'DOCX_TABLES_REQUIRE_REVIEW';
                     $rows = [];
                     foreach ($xpath->query('./w:tr', $element) ?: [] as $row) {
                         $cells = [];
@@ -243,7 +245,6 @@ class SourceDocumentConverter
                 }
             }
 
-            $warnings = ['DOCX_LAYOUT_APPROXIMATE'];
             for ($index = 0; $index < $archive->numFiles; $index++) {
                 $name = (string) $archive->getNameIndex($index);
                 if (str_starts_with($name, 'word/media/') && ! str_ends_with($name, '/')) {

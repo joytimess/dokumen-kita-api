@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['document_guid', 'version_number', 'editor_data_json', 'source_type', 'source_path', 'preview_pdf_path', 'preview_status', 'preview_page_count', 'final_pdf_path', 'content_hash', 'manifest_hash', 'final_pdf_hash', 'status', 'published_at', 'preview_generation', 'preview_source', 'preview_error_code', 'finalization_error_code', 'conversion_status', 'conversion_generation', 'conversion_error_code', 'conversion_warnings', 'conversion_page_count', 'editor_revision'])]
+#[Fillable(['document_guid', 'version_number', 'editor_data_json', 'letterhead', 'footer', 'source_type', 'source_path', 'preview_pdf_path', 'preview_status', 'preview_page_count', 'preview_error_code', 'preview_error_message', 'final_pdf_path', 'content_hash', 'manifest_hash', 'final_pdf_hash', 'status', 'published_at', 'preview_generation', 'preview_source', 'finalization_error_code', 'conversion_status', 'conversion_generation', 'conversion_error_code', 'conversion_warnings', 'conversion_page_count', 'editor_revision'])]
 class DocumentVersion extends Model
 {
     /** @use HasFactory<DocumentVersionFactory> */
@@ -26,6 +26,8 @@ class DocumentVersion extends Model
     {
         return [
             'editor_data_json' => 'array',
+            'letterhead' => 'array',
+            'footer' => 'array',
             'status' => VersionStatus::class,
             'preview_status' => PreviewStatus::class,
             'source_type' => SourceType::class,

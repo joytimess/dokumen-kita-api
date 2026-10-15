@@ -245,6 +245,38 @@ class DocumentApiTest extends TestCase
         $this->assertSame(1, $version->fresh()->editor_revision);
     }
 
+    public function test_unsupported_table_structures_and_inline_format_report_their_location(): void
+    {
+        $owner = User::factory()->create();
+        $version = $this->ownedDraft($owner);
+
+        $complexCell = $this->actingAs($owner)->patchJson("/api/v1/versions/{$version->guid}", [
+            'editor_revision' => 1,
+            'editor_data' => ['blocks' => [['type' => 'table', 'data' => [
+                'content' => [[['text' => 'Gabung', 'colspan' => 2]]],
+            ]]]],
+        ])->assertUnprocessable();
+        $this->assertSame('Sel tabel kompleks belum didukung; gunakan satu teks tanpa gambar atau gabungan sel.',
+            $complexCell->json('error.errors')['editor_data.blocks.0.data.content.0.0'][0]);
+
+        $attribute = $this->patchJson("/api/v1/versions/{$version->guid}", [
+            'editor_revision' => 1,
+            'editor_data' => ['blocks' => [['type' => 'table', 'data' => [
+                'content' => [['Isi']], 'colWidths' => [100],
+            ]]]],
+        ])->assertUnprocessable();
+        $this->assertSame('Atribut editor ini belum didukung pada PDF.',
+            $attribute->json('error.errors')['editor_data.blocks.0.data.colWidths'][0]);
+
+        $format = $this->patchJson("/api/v1/versions/{$version->guid}", [
+            'editor_revision' => 1,
+            'editor_data' => ['blocks' => [['type' => 'paragraph', 'data' => ['text' => '<s>coret</s>']]]],
+        ])->assertUnprocessable();
+        $this->assertSame('Format teks ini belum didukung pada PDF.',
+            $format->json('error.errors')['editor_data.blocks.0.data.text'][0]);
+        $this->assertSame(1, $version->fresh()->editor_revision);
+    }
+
     public function test_unsupported_blocks_and_remote_images_are_rejected(): void
     {
         $owner = User::factory()->create();
