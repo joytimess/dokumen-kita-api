@@ -57,6 +57,39 @@ class PdfRendererWorkflowTest extends TestCase
             ->assertConflict();
     }
 
+    public function test_editor_preview_reflects_independent_table_border_choices(): void
+    {
+        Storage::fake('local');
+        config(['documents.disk' => 'local']);
+        $owner = User::factory()->create();
+        $tables = ['blocks' => [
+            ['type' => 'table', 'data' => ['withHeadings' => true, 'showBorders' => true, 'content' => [['Garis aktif'], ['A']]]],
+            ['type' => 'table', 'data' => ['withHeadings' => false, 'showBorders' => false, 'content' => [['Tanpa garis'], ['B']]]],
+        ]];
+        $version = $this->draft($owner, ['editor_data_json' => $tables]);
+        $renderer = $this->app->make(PdfDocumentRenderer::class);
+
+        $mixed = $renderer->preview($version);
+        $legacyBordered = $renderer->preview($version->setAttribute('editor_data_json', [
+            'blocks' => [
+                $tables['blocks'][0],
+                ['type' => 'table', 'data' => ['withHeadings' => false, 'content' => [['Tanpa garis'], ['B']]]],
+            ],
+        ]));
+
+        $this->assertSame(1, $mixed['pages']);
+        $this->assertSame(1, $legacyBordered['pages']);
+        $this->assertNotSame($mixed['bytes'], $legacyBordered['bytes']);
+        $parser = new Parser;
+        $mixedDocument = $parser->parseContent($mixed['bytes']);
+        $borderedDocument = $parser->parseContent($legacyBordered['bytes']);
+        $this->assertStringContainsString('Garis aktif', $mixedDocument->getText());
+        $this->assertStringContainsString('Tanpa garis', $mixedDocument->getText());
+        $mixedCommands = $mixedDocument->getPages()[0]->get('Contents')->getContent();
+        $borderedCommands = $borderedDocument->getPages()[0]->get('Contents')->getContent();
+        $this->assertLessThan(substr_count($borderedCommands, " S\n"), substr_count($mixedCommands, " S\n"));
+    }
+
     public function test_final_pdf_embeds_each_signature_and_completes_only_after_file_is_saved(): void
     {
         $owner = User::factory()->create();

@@ -104,6 +104,7 @@ class ImportConversionTest extends TestCase
             ->assertJsonPath('data.editor_data.blocks.0.type', 'header')
             ->assertJsonPath('data.editor_data.blocks.0.data.text', 'Judul kontrak')
             ->assertJsonPath('data.editor_data.blocks.1.type', 'table')
+            ->assertJsonPath('data.editor_data.blocks.1.data.showBorders', true)
             ->assertJsonPath('data.editor_data.blocks.2.type', 'image');
     }
 

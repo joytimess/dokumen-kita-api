@@ -135,6 +135,10 @@ class EditorDataSanitizer
      */
     private function sanitizeTable(array $data, string $path): array
     {
+        if (array_key_exists('showBorders', $data) && ! is_bool($data['showBorders'])) {
+            $this->fail("$path.data.showBorders", 'Pilihan garis tabel harus berupa boolean.');
+        }
+
         $rows = $data['content'] ?? null;
 
         if (! is_array($rows) || count($rows) > config('documents.editor.max_table_rows')) {
@@ -151,7 +155,11 @@ class EditorDataSanitizer
             $clean[] = array_map(fn ($cell, $c) => $this->text($cell ?? '', "$path.data.content.$r.$c"), array_values($row), array_keys(array_values($row)));
         }
 
-        return ['withHeadings' => (bool) ($data['withHeadings'] ?? false), 'content' => $clean];
+        return [
+            'withHeadings' => (bool) ($data['withHeadings'] ?? false),
+            'showBorders' => $data['showBorders'] ?? true,
+            'content' => $clean,
+        ];
     }
 
     /**

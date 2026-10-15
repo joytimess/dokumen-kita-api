@@ -156,6 +156,7 @@ class PdfDocumentRenderer
             .'@page{margin:20mm 18mm}body{font-family:DejaVu Sans,sans-serif;font-size:11pt;line-height:1.5;color:#111}'
             .'p{margin:0 0 10pt}h1,h2,h3,h4,h5,h6{margin:12pt 0 7pt;page-break-after:avoid}'
             .'table{border-collapse:collapse;width:100%;margin:8pt 0}td,th{border:1px solid #777;padding:5pt;vertical-align:top}'
+            .'table.table-without-borders td,table.table-without-borders th{border:0 none transparent}'
             .'img,figure{max-width:100%}figure{margin:8pt 0;text-align:center}figure img{max-width:100%;max-height:220mm}'
             .'figcaption{font-size:9pt;color:#555}li{margin-bottom:3pt}'
             .'</style></head><body>'.$body.'</body></html>';
@@ -180,7 +181,7 @@ class PdfDocumentRenderer
     /** @param array<string, mixed> $data */
     private function tableHtml(array $data): string
     {
-        $html = '<table>';
+        $html = ($data['showBorders'] ?? true) ? '<table>' : '<table class="table-without-borders">';
         foreach ($data['content'] as $index => $row) {
             $cell = $data['withHeadings'] && $index === 0 ? 'th' : 'td';
             $html .= '<tr>';

@@ -178,6 +178,73 @@ class DocumentApiTest extends TestCase
         $this->assertStringContainsString('<a href="https://ok.test/x" rel="noopener noreferrer">ok</a>', $text);
     }
 
+    public function test_table_border_choices_are_saved_per_table_and_default_to_visible(): void
+    {
+        $owner = User::factory()->create();
+        $tables = ['blocks' => [
+            ['type' => 'table', 'data' => ['withHeadings' => true, 'showBorders' => false, 'content' => [['Nama'], ['A']]]],
+            ['type' => 'table', 'data' => ['withHeadings' => false, 'content' => [['Nilai'], ['B']]]],
+        ]];
+
+        $created = $this->actingAs($owner)->postJson('/api/v1/documents', ['title' => 'Pilihan garis', 'editor_data' => $tables])
+            ->assertCreated()
+            ->assertJsonPath('data.current_version.editor_data.blocks.0.data.showBorders', false)
+            ->assertJsonPath('data.current_version.editor_data.blocks.1.data.showBorders', true);
+        $versionGuid = $created->json('data.current_version.guid');
+
+        $this->getJson("/api/v1/versions/{$versionGuid}")
+            ->assertOk()
+            ->assertJsonPath('data.editor_data.blocks.0.data.showBorders', false)
+            ->assertJsonPath('data.editor_data.blocks.1.data.showBorders', true);
+        $this->assertSame($tables['blocks'][0]['data']['showBorders'], DocumentVersion::where('guid', $versionGuid)->firstOrFail()->editor_data_json['blocks'][0]['data']['showBorders']);
+    }
+
+    public function test_table_border_change_invalidates_preview_and_requires_current_revision(): void
+    {
+        $owner = User::factory()->create();
+        $version = $this->ownedDraft($owner, [
+            'editor_data_json' => ['blocks' => [['type' => 'table', 'data' => ['withHeadings' => false, 'showBorders' => true, 'content' => [['Isi']]]]]],
+            'preview_status' => PreviewStatus::Ready,
+            'content_hash' => str_repeat('a', 64),
+        ]);
+        SignerAssignment::factory()->create(['version_guid' => $version->guid]);
+        $changed = ['blocks' => [['type' => 'table', 'data' => ['withHeadings' => false, 'showBorders' => false, 'content' => [['Isi']]]]]];
+
+        $this->actingAs($owner)->patchJson("/api/v1/versions/{$version->guid}", [
+            'editor_revision' => 1, 'editor_data' => $changed,
+        ])->assertOk()->assertJsonPath('data.editor_data.blocks.0.data.showBorders', false)
+            ->assertJsonPath('data.editor_revision', 2)
+            ->assertJsonPath('data.preview_status', 'stale')
+            ->assertJsonPath('data.content_hash', null);
+        $this->patchJson("/api/v1/versions/{$version->guid}", [
+            'editor_revision' => 1, 'editor_data' => $changed,
+        ])->assertConflict()->assertJsonPath('error.code', 'EDITOR_REVISION_CONFLICT');
+
+        $this->assertSame(false, $version->fresh()->editor_data_json['blocks'][0]['data']['showBorders']);
+        $this->postJson("/api/v1/versions/{$version->guid}/publish")->assertConflict();
+        $changed['blocks'][0]['data']['showBorders'] = true;
+        $this->patchJson("/api/v1/versions/{$version->guid}", [
+            'editor_revision' => 2, 'editor_data' => $changed,
+        ])->assertOk()->assertJsonPath('data.editor_data.blocks.0.data.showBorders', true)
+            ->assertJsonPath('data.editor_revision', 3);
+    }
+
+    public function test_table_border_choice_rejects_non_boolean_value(): void
+    {
+        $owner = User::factory()->create();
+        $version = $this->ownedDraft($owner);
+
+        $response = $this->actingAs($owner)->patchJson("/api/v1/versions/{$version->guid}", [
+            'editor_revision' => 1,
+            'editor_data' => ['blocks' => [['type' => 'table', 'data' => [
+                'showBorders' => 'false', 'content' => [['Isi']],
+            ]]]],
+        ])->assertUnprocessable();
+
+        $this->assertSame('Pilihan garis tabel harus berupa boolean.', $response->json('error.errors')['editor_data.blocks.0.data.showBorders'][0]);
+        $this->assertSame(1, $version->fresh()->editor_revision);
+    }
+
     public function test_unsupported_blocks_and_remote_images_are_rejected(): void
     {
         $owner = User::factory()->create();
