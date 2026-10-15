@@ -22,9 +22,14 @@ class DocumentVersionResource extends ApiResource
         return [
             'guid' => $this->guid,
             'document_guid' => $this->document_guid,
+            'document_title' => $this->document->title,
+            'is_current' => ! $this->document->versions()->where('version_number', '>', $this->version_number)->exists(),
             'version_number' => $this->version_number,
             'status' => $this->status,
             'preview_status' => $this->preview_status,
+            'preview_source' => $this->when($isOwner, $this->preview_source),
+            'preview_error_code' => $this->when($isOwner, $this->preview_error_code),
+            'finalization_error_code' => $this->when($isOwner, $this->finalization_error_code),
             'content_hash' => $this->when($request->user()?->can('viewPdf', $this->resource), $this->content_hash),
             'preview_page_count' => $this->when($isOwner, $this->preview_page_count),
             'assignments' => $this->whenLoaded('assignments', function () use ($isOwner, $request) {

@@ -8,6 +8,13 @@ return [
     /* Private disk for sources, previews, signatures and final PDFs. Use an S3-compatible disk (R2) in staging/production. */
     'disk' => env('DOCUMENT_DISK', 'local'),
 
+    'processing' => [
+        'connection' => env('DOCUMENT_QUEUE_CONNECTION', 'database'),
+        'queue' => env('DOCUMENT_QUEUE', 'documents'),
+        'max_pages' => 200,
+        'libreoffice_binary' => env('LIBREOFFICE_BINARY'),
+    ],
+
     'invitations' => [
         'expires_days' => (int) env('INVITATION_EXPIRES_DAYS', 7),
     ],

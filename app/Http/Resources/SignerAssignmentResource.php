@@ -17,6 +17,9 @@ class SignerAssignmentResource extends ApiResource
         return [
             'guid' => $this->guid,
             'version_guid' => $this->version_guid,
+            'document_guid' => $this->version->document_guid,
+            'document_title' => $this->version->document->title,
+            'version_number' => $this->version->version_number,
             'recipient_email' => $this->recipient_email,
             'sequence_number' => $this->sequence_number,
             'status' => $this->status,

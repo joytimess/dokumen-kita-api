@@ -14,6 +14,8 @@ use App\Http\Controllers\Api\V1\MeController;
 use App\Http\Controllers\Api\V1\PasswordResetController;
 use App\Http\Controllers\Api\V1\ReadConfirmationController;
 use App\Http\Controllers\Api\V1\SignatureAssetController;
+use App\Http\Controllers\Api\V1\VersionFinalizationController;
+use App\Http\Controllers\Api\V1\VersionPreviewController;
 use App\Http\Controllers\Api\V1\VersionPublishController;
 use App\Http\Controllers\Api\V1\VersionSignerController;
 use Illuminate\Support\Facades\Route;
@@ -54,6 +56,9 @@ Route::prefix('v1')->group(function (): void {
         });
 
         Route::prefix('versions')->group(function (): void {
+            Route::get('{version}', [DocumentVersionController::class, 'show']);
+            Route::post('{version}/preview', [VersionPreviewController::class, 'store'])->middleware('throttle:10,1');
+            Route::post('{version}/finalize', [VersionFinalizationController::class, 'store'])->middleware('throttle:10,1');
             Route::patch('{version}', [DocumentVersionController::class, 'update']);
             Route::put('{version}/signers', [VersionSignerController::class, 'update']);
             Route::post('{version}/publish', [VersionPublishController::class, 'store'])->middleware('throttle:20,1');

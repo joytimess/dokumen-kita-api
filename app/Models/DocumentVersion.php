@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['document_guid', 'version_number', 'editor_data_json', 'source_type', 'source_path', 'preview_pdf_path', 'preview_status', 'preview_page_count', 'final_pdf_path', 'content_hash', 'manifest_hash', 'final_pdf_hash', 'status', 'published_at'])]
+#[Fillable(['document_guid', 'version_number', 'editor_data_json', 'source_type', 'source_path', 'preview_pdf_path', 'preview_status', 'preview_page_count', 'final_pdf_path', 'content_hash', 'manifest_hash', 'final_pdf_hash', 'status', 'published_at', 'preview_generation', 'preview_source', 'preview_error_code', 'finalization_error_code'])]
 class DocumentVersion extends Model
 {
     /** @use HasFactory<DocumentVersionFactory> */

@@ -13,6 +13,15 @@ class DocumentVersionController extends Controller
 {
     public function __construct(private readonly DocumentService $documents) {}
 
+    public function show(DocumentVersion $version): DocumentVersionResource
+    {
+        Gate::authorize('view', $version);
+
+        return new DocumentVersionResource($version->load(
+            'document', 'assignments.placeholders', 'assignments.readConfirmation', 'assignments.signature',
+        ));
+    }
+
     public function update(UpdateVersionRequest $request, DocumentVersion $version): DocumentVersionResource
     {
         Gate::authorize('update', $version);

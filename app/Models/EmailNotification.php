@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['version_guid', 'assignment_guid', 'recipient_email', 'notification_type', 'deduplication_key', 'status', 'attempt_count', 'scheduled_at', 'sent_at', 'payload'])]
+#[Fillable(['version_guid', 'assignment_guid', 'recipient_email', 'notification_type', 'deduplication_key', 'status', 'attempt_count', 'scheduled_at', 'sent_at', 'payload', 'last_error_code'])]
 class EmailNotification extends Model
 {
     /** @use HasFactory<EmailNotificationFactory> */

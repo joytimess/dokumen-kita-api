@@ -15,6 +15,18 @@ Before relying on a package's API, confirm its installed version:
 
 This project has domain-specific skills available in `**/skills/**`. You MUST activate the relevant skill whenever you work in that domain—don't wait until you're stuck.
 
+## Engineering principles
+
+- Read the relevant existing code before making changes.
+- Implement the smallest complete solution to the requested task.
+- Follow existing project conventions.
+- Do not add speculative features, dependencies, or abstractions.
+- Keep unrelated code and formatting unchanged.
+- Ask when ambiguity materially affects scope or behavior.
+  Otherwise, proceed with a reasonable assumption and report it.
+- Verify the changed behavior with appropriate checks.
+- Report what changed, what was verified, and any remaining limitations.
+
 ## Conventions
 
 - You must follow all existing code conventions used in this application. When creating or editing a file, check sibling files for the correct structure, approach, and naming.

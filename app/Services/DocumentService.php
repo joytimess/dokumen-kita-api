@@ -155,6 +155,8 @@ class DocumentService
      */
     private function invalidatePreview(DocumentVersion $version): void
     {
+        $version->preview_generation = null;
+        $version->preview_error_code = null;
         if ($version->preview_status !== PreviewStatus::None) {
             $version->preview_status = PreviewStatus::Stale;
         }
