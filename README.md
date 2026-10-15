@@ -1,58 +1,127 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Dokumen Kita API
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Dokumen Kita adalah aplikasi untuk menyusun dokumen, mengatur penerima sesuai urutan, dan meminta persetujuan dengan coretan tanda tangan. Owner dapat membuat draft atau mengimpor PDF/DOCX, mengubah hasil impor di editor, meninjau PDF preview, mengatur posisi tanda tangan, lalu menerbitkan dokumen. Penerima yang sedang mendapat giliran dapat membaca, menandatangani, atau meminta revisi. Setelah semua persetujuan selesai, sistem membentuk PDF final.
 
-## About Laravel
+Repositori ini adalah **backend API**. Antarmuka pengguna berada di proyek terpisah, `dokumen-kita-web`. Coretan tanda tangan pada aplikasi ini bukan tanda tangan digital tersertifikasi; impor PDF hasil scan juga belum memiliki OCR.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Arsitektur
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
-
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
-
-## Learning Laravel
-
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
-
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
-
-```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+```text
+Browser / dokumen-kita-web (Vue)
+    │  HTTP + cookie sesi Sanctum + CSRF
+    ▼
+Laravel API (/api/v1)
+    ├── Controller, Form Request, Policy, Resource
+    ├── Service: aturan dokumen, versi, undangan, tanda tangan
+    ├── MySQL: akun, dokumen, status, sesi, cache, antrean, audit
+    ├── Disk privat: sumber PDF/DOCX, preview, aset tanda tangan, PDF final
+    └── Scheduler → job queue: konversi, preview, finalisasi, email
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+API memakai GUID untuk identitas publik. Owner dan penerima mendapat akses berbeda melalui policy. Perubahan draft menggunakan `editor_revision` agar autosave atau hasil konversi lama tidak menimpa edit terbaru. Berkas disimpan privat dan diambil melalui endpoint yang memeriksa izin. Email undangan dibuat ketika giliran penerima menjadi aktif.
 
-## Contributing
+Kode utama berada di `routes/api.php`, `app/Http/Controllers/Api/V1`, `app/Http/Requests`, `app/Http/Resources`, `app/Policies`, `app/Services`, dan `app/Jobs`. Struktur data ada di `app/Models` dan `database/migrations`. Batas proses dokumen ada di `config/documents.php`.
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+## Teknologi dan library utama
 
-## Code of Conduct
+| Komponen | Peran |
+| --- | --- |
+| PHP 8.3 dan Laravel 13 | Runtime, routing API, validasi, Eloquent, queue, scheduler, dan notifikasi. |
+| MySQL | Database bawaan pada `.env.example`; menyimpan data aplikasi, sesi, cache, dan job queue. |
+| Laravel Sanctum | Autentikasi frontend melalui cookie sesi dan CSRF. |
+| Laravel Socialite | Login Google melalui OAuth, bila kredensial Google disediakan. |
+| Dompdf | Merender blok editor menjadi PDF preview. |
+| FPDI dan FPDF | Membaca PDF preview dan menempatkan gambar tanda tangan pada PDF final. |
+| `smalot/pdfparser` | Fallback ekstraksi teks dan pembacaan gambar PDF. |
+| `pdftotext` | Binary eksternal yang diutamakan untuk ekstraksi teks PDF; fallback PHP tersedia jika binary tidak ada. |
+| PHP ZipArchive, DOM, dan GD | Membaca DOCX/XML serta memeriksa aset gambar tanda tangan. |
+| Predis | Klien Redis yang tersedia bila deployment memilih Redis. Konfigurasi lokal bawaan memakai database untuk cache dan queue. |
+| PHPUnit dan Laravel Pint | Pengujian dan format kode saat pengembangan. |
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+`package.json` di repositori backend menyediakan Vite/Tailwind untuk aset Laravel. Frontend aplikasi pengguna dan dependensinya berada di `dokumen-kita-web`; menjalankan API ini tidak memerlukan server Vite backend.
 
-## Security Vulnerabilities
+## Koneksi dan alamat API
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+Contoh konfigurasi lokal memakai backend `http://localhost:8000` dan frontend `http://localhost:5173`. Endpoint aplikasi berada di **`http://localhost:8000/api/v1`**. Frontend mengisi `VITE_API_BASE_URL=http://localhost:8000` tanpa tambahan `/api/v1`; service frontend menambahkan prefix tersebut. Frontend juga perlu `VITE_AUTH_MODE=api` agar menggunakan backend nyata.
 
-## License
+| Variabel backend | Fungsi dan contoh lokal |
+| --- | --- |
+| `APP_URL` | Origin backend, misalnya `http://localhost:8000`; dipakai juga untuk link verifikasi dan callback OAuth. |
+| `FRONTEND_URL` | Origin frontend, misalnya `http://localhost:5173`; tujuan redirect login Google, verifikasi email, dan link undangan. |
+| `CORS_ALLOWED_ORIGINS` | Origin frontend yang boleh mengakses API dengan cookie. |
+| `SANCTUM_STATEFUL_DOMAINS` | Host:port frontend dan backend yang memakai sesi Sanctum. |
+| `DB_*` | Koneksi MySQL; database lokal pada contoh bernama `dokumen_kita_api`. |
+| `DOCUMENT_DISK` | Disk privat untuk sumber, preview, tanda tangan, dan final; contoh lokal `local`. |
+| `DOCUMENT_QUEUE_CONNECTION`, `DOCUMENT_QUEUE` | Koneksi dan nama queue pekerjaan dokumen; contoh `database` dan `documents`. |
+| `MAIL_*` | Transport email. Nilai bawaan `MAIL_MAILER=log` menulis email ke log lokal, bukan mengirim ke inbox. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | Opsional untuk login Google. Redirect URI harus menunjuk ke `/api/v1/auth/google/callback` pada origin backend. |
+| `PDFTOTEXT_BINARY` | Opsional jika lokasi executable `pdftotext` tidak ada di `PATH`. |
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+Untuk request dari browser, frontend mengambil cookie CSRF melalui `/sanctum/csrf-cookie` dan mengirim cookie sesi pada request berikutnya. Gunakan host yang konsisten pada kedua proyek, misalnya sama-sama `localhost`, agar pengaturan cookie tidak berbeda antara `localhost` dan `127.0.0.1`. Endpoint kesehatan Laravel tersedia di `/up`; daftar endpoint dapat dilihat dengan `php artisan route:list --path=api --no-interaction`.
+
+## Menjalankan backend di lokal
+
+Contoh perintah di bawah memakai PowerShell dan alamat dari `.env.example`. Siapkan PHP 8.3 beserta ekstensi yang diperlukan (terutama `pdo_mysql`, `zip`, `dom`/XML, dan `gd`), Composer, serta MySQL yang sedang berjalan. `pdftotext` dianjurkan untuk impor PDF digital. Node.js/npm hanya diperlukan jika ingin membangun aset Laravel di repositori backend.
+
+1. Buka terminal di folder `dokumen-kita-api`, lalu pasang dependensi PHP dan salin konfigurasi:
+
+   ```powershell
+   composer install
+   Copy-Item .env.example .env
+   ```
+
+2. Buat database MySQL bernama `dokumen_kita_api` (misalnya melalui Laragon/phpMyAdmin). Sesuaikan `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, dan `DB_PASSWORD` di `.env`. Pastikan `APP_URL`, `FRONTEND_URL`, CORS, dan domain Sanctum cocok dengan alamat yang akan dipakai. Jangan memasukkan kredensial nyata ke Git.
+
+3. Buat app key dan jalankan migration:
+
+   ```powershell
+   php artisan key:generate --no-interaction
+   php artisan migrate --no-interaction
+   ```
+
+4. Jalankan API pada terminal pertama:
+
+   ```powershell
+   php artisan serve --host=localhost --port=8000
+   ```
+
+5. Jalankan worker pada terminal kedua dan scheduler pada terminal ketiga. Keduanya diperlukan agar impor, preview, PDF final, dan email antrean diproses:
+
+   ```powershell
+   php artisan queue:work database --queue=documents,default --sleep=1 --tries=3 --timeout=75
+   ```
+
+   ```powershell
+   php artisan schedule:work
+   ```
+
+6. Periksa `http://localhost:8000/up` dan, jika diperlukan, `php artisan route:list --path=api --no-interaction`.
+
+`DB_QUEUE_RETRY_AFTER` harus lebih besar daripada timeout worker (contoh bawaan: 90 detik vs 75 detik). Pada server yang dipasang permanen, jalankan worker sebagai proses terkelola dan panggil `php artisan schedule:run` setiap menit melalui scheduler server. `composer run dev` bawaan tidak menjalankan scheduler pekerjaan dokumen.
+
+### Menjalankan frontend bersama API
+
+Jika repositori `dokumen-kita-web` ada di folder yang sejajar, siapkan Node.js sesuai `engines` pada `package.json` frontend dan buka terminal baru:
+
+```powershell
+Set-Location ..\dokumen-kita-web
+Copy-Item .env.example .env.local
+npm ci
+```
+
+Ubah `.env.local` frontend menjadi `VITE_AUTH_MODE=api` dan `VITE_API_BASE_URL=http://localhost:8000`, lalu jalankan `npm run dev`. Buka alamat yang ditampilkan Vite, biasanya `http://localhost:5173`. Pastikan backend tetap berjalan pada terminalnya. Integrasi UI untuk seluruh alur PDF editable dijabarkan pada PRD frontend di `docs/`.
+
+## Email, Google, dan Redis
+
+- Konfigurasi `MAIL_MAILER=log` cukup untuk melihat isi email saat pengembangan di `storage/logs`. Atur transport SMTP dan worker queue jika perlu menguji pengiriman email nyata; status diterima transport tidak menjamin email masuk inbox.
+- Login email/password dapat dicoba tanpa Google OAuth. Untuk login Google, isi kredensial Google, daftarkan redirect URI backend yang tepat di penyedia OAuth, lalu cocokkan `GOOGLE_REDIRECT_URI` dengan URI tersebut.
+- Redis bersifat opsional pada contoh lokal. Jika memilih Redis untuk cache/queue, jalankan server Redis dan sesuaikan `CACHE_STORE`, `QUEUE_CONNECTION`/`DOCUMENT_QUEUE_CONNECTION`, serta `REDIS_CLIENT` dan `REDIS_*`. Jangan mengasumsikan Redis aktif hanya karena paket Predis terpasang.
+
+## Pengembangan dan pemeriksaan
+
+```powershell
+php artisan test --compact
+vendor/bin/pint --dirty --format agent
+```
+
+Gunakan tes terarah saat mengubah satu alur. Pengujian otomatis tidak menggantikan pemeriksaan PDF visual, MySQL untuk aksi bersamaan, atau email melalui SMTP/inbox uji. Spesifikasi OpenAPI tersedia pada `openapi.yaml`; handoff backend dan PRD frontend berada di `docs/`.
