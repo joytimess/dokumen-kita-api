@@ -4,10 +4,12 @@ namespace App\Console\Commands;
 
 use App\Jobs\ConvertDocumentImport;
 use App\Jobs\DeliverDocumentEmail;
+use App\Jobs\DeliverRealtimeNotification;
 use App\Jobs\FinalizeDocument;
 use App\Jobs\GenerateDocumentPreview;
 use App\Models\DocumentVersion;
 use App\Models\EmailNotification;
+use App\Models\RealtimeDelivery;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -16,7 +18,7 @@ class ProcessDocumentWork extends Command
 {
     protected $signature = 'documents:process';
 
-    protected $description = 'Dispatch durable pending preview, finalization, and email work';
+    protected $description = 'Dispatch durable pending preview, finalization, and notifications';
 
     public function handle(): int
     {
@@ -43,6 +45,13 @@ class ProcessDocumentWork extends Command
             ->chunkById(100, function (Collection $notifications): void {
                 foreach ($notifications as $notification) {
                     DeliverDocumentEmail::dispatch($notification->guid);
+                }
+            });
+        RealtimeDelivery::where('status', 'queued')->where('attempt_count', '<', 3)
+            ->where(fn (Builder $query): Builder => $query->whereNull('next_attempt_at')->orWhere('next_attempt_at', '<=', now()))
+            ->chunkById(100, function (Collection $deliveries): void {
+                foreach ($deliveries as $delivery) {
+                    DeliverRealtimeNotification::dispatch($delivery->guid);
                 }
             });
 

@@ -119,6 +119,7 @@ class PdfRendererWorkflowTest extends TestCase
         $final = Storage::disk('local')->get($version->final_pdf_path);
         $this->assertStringStartsWith('%PDF-', $final);
         $this->assertSame(hash('sha256', $final), $version->final_pdf_hash);
+        $this->assertDatabaseHas('user_notifications', ['user_guid' => $version->document->owner_guid, 'event_type' => 'version.final_pdf_ready', 'version_guid' => $version->guid]);
         $this->assertGreaterThan(strlen($previewBytes), strlen($final));
         $this->assertCount(2, (new Parser)->parseContent($final)->getPages());
         $this->actingAs($owner)->get("/api/v1/versions/{$version->guid}/pdf")->assertOk();

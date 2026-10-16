@@ -15,6 +15,7 @@ class AssignmentRejectionService
         private readonly VersionWorkflow $workflow,
         private readonly InvitationService $invitations,
         private readonly AuditRecorder $audit,
+        private readonly RealtimeNotificationService $realtime,
     ) {}
 
     public function reject(User $actor, SignerAssignment $assignment, string $reason): SignerAssignment
@@ -55,6 +56,7 @@ class AssignmentRejectionService
                 'assignment_guid' => $locked->guid,
                 'reason' => $reason,
             ]);
+            $this->realtime->notifyOwner($version, 'version.rejected', $locked);
 
             return $locked->setRelation('version', $version);
         }, attempts: 3);

@@ -18,6 +18,7 @@ class PublishService
         private readonly StoredPreviewSnapshot $preview,
         private readonly InvitationService $invitations,
         private readonly AuditRecorder $audit,
+        private readonly RealtimeNotificationService $realtime,
     ) {}
 
     public function publish(User $actor, DocumentVersion $version): DocumentVersion
@@ -77,6 +78,11 @@ class PublishService
                 if ($assignment->status === 'ready') {
                     $this->invitations->issue($assignment);
                 }
+            }
+            $ready = $assignments->firstWhere('status', 'ready');
+            if ($ready !== null) {
+                $this->realtime->notifyOwner($locked, 'assignment.ready', $ready);
+                $this->realtime->notifyAssignment($locked, $ready, 'assignment.ready');
             }
 
             $this->audit->record('version.published', $locked->document, $locked, $actor, [

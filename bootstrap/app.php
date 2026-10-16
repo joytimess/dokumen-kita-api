@@ -13,6 +13,7 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    ->withBroadcasting(__DIR__.'/../routes/channels.php', ['middleware' => ['api', 'auth:sanctum']])
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->statefulApi();
         $middleware->api(prepend: [AssignRequestId::class]);

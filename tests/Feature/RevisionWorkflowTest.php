@@ -55,6 +55,7 @@ class RevisionWorkflowTest extends TestCase
         $this->assertTrue($draft->assignments()->firstOrFail()->placeholders()->firstOrFail()->needs_review);
         $this->assertSame(0, $secondAssignment->invitationLinks()->whereNull('revoked_at')->count());
         $this->assertSame(1, EmailNotification::where('notification_type', 'revision_requested')->count());
+        $this->assertDatabaseHas('user_notifications', ['user_guid' => $owner->guid, 'event_type' => 'version.revision_requested', 'version_guid' => $version->guid]);
         $this->assertSame(1, $secondAssignment->response()->count());
 
         $this->postJson("/api/v1/assignments/{$secondAssignment->guid}/revision-request", ['reason' => 'Lagi'])

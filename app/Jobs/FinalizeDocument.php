@@ -6,9 +6,13 @@ use App\Exceptions\ApiException;
 use App\Models\DocumentVersion;
 use App\Services\DocumentPipelineService;
 use App\Services\PdfDocumentRenderer;
+use App\Services\RealtimeNotificationService;
+use App\Services\VersionWorkflow;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class FinalizeDocument implements ShouldBeUnique, ShouldQueue
@@ -48,6 +52,20 @@ class FinalizeDocument implements ShouldBeUnique, ShouldQueue
 
     public function failed(?Throwable $exception): void
     {
-        DocumentVersion::where('guid', $this->versionGuid)->where('status', 'finalizing')->update(['finalization_error_code' => $exception instanceof ApiException ? $exception->errorCode : 'FINALIZATION_FAILED']);
+        $version = DocumentVersion::where('guid', $this->versionGuid)->first();
+        if ($version === null) {
+            return;
+        }
+
+        DB::transaction(function () use ($version, $exception): void {
+            $locked = app(VersionWorkflow::class)->lock($version);
+            if ($locked->status->value !== 'finalizing') {
+                return;
+            }
+
+            $locked->update(['finalization_error_code' => $exception instanceof ApiException ? $exception->errorCode : 'FINALIZATION_FAILED']);
+            app(RealtimeNotificationService::class)->notifyOwner($locked, 'version.final_pdf_failed');
+            Log::warning('Document finalization failed.', ['version_guid' => $locked->guid, 'error' => class_basename($exception)]);
+        });
     }
 }

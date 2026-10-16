@@ -13,6 +13,24 @@ info:
     Renderer dan worker email tersedia di aplikasi; operasi hosting dan delivery inbox tetap bergantung pada runtime.
 servers:
   - url: /api/v1
+x-realtime:
+  transport: Pusher Channels
+  authorization:
+    url: /broadcasting/auth
+    middleware: [api, auth:sanctum]
+    private_channel: private-users.{userGuid}
+    rule: authenticated user GUID must match userGuid
+  event: document.status.changed
+  event_types:
+    assignment.ready: owner and claimed active signer
+    assignment.signed: owner
+    version.revision_requested: owner
+    version.rejected: owner
+    version.final_pdf_ready: owner
+    version.final_pdf_failed: owner
+  payload: [notification_guid, event_type, document_guid, version_guid, version_status, assignment_guid, assignment_status]
+  delivery: durable outbox; 3 attempts with 1-minute and 5-minute delays; consumers can deduplicate by notification_guid
+  recovery: On reconnect or a missed event, refresh GET /documents/{documentGuid} or GET /versions/{versionGuid}; event payload is only a refresh hint.
 security:
   - sessionCookie: []
 paths:

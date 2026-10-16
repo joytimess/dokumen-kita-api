@@ -13,7 +13,11 @@ use Illuminate\Support\Str;
 
 class InvitationService
 {
-    public function __construct(private readonly VersionWorkflow $workflow, private readonly AuditRecorder $audit) {}
+    public function __construct(
+        private readonly VersionWorkflow $workflow,
+        private readonly AuditRecorder $audit,
+        private readonly RealtimeNotificationService $realtime,
+    ) {}
 
     /**
      * Called inside the publish/resend transaction, after locking the assignment.
@@ -76,6 +80,7 @@ class InvitationService
                 $assignment->update(['user_guid' => $actor->guid, 'claimed_at' => now()]);
                 $this->audit->record('invitation.claimed', $version->document, $version, $actor, ['assignment_guid' => $assignment->guid]);
             }
+            $this->realtime->notifyAssignment($version, $assignment, 'assignment.ready');
 
             return $assignment->setRelation('version', $version)->load('placeholders');
         });

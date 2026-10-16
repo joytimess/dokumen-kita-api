@@ -19,6 +19,7 @@ class SignatureService
         private readonly SignatureAssetService $assets,
         private readonly InvitationService $invitations,
         private readonly AuditRecorder $audit,
+        private readonly RealtimeNotificationService $realtime,
     ) {}
 
     /**
@@ -97,6 +98,12 @@ class SignatureService
                     'status' => 'queued',
                 ]);
                 $this->audit->record('version.finalizing', $version->document, $version, $actor);
+            }
+
+            $this->realtime->notifyOwner($version, 'assignment.signed', $locked);
+            if ($next !== null) {
+                $this->realtime->notifyOwner($version, 'assignment.ready', $next);
+                $this->realtime->notifyAssignment($version, $next, 'assignment.ready');
             }
 
             return $signature;

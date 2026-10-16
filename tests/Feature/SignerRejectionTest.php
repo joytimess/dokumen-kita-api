@@ -37,6 +37,7 @@ class SignerRejectionTest extends TestCase
         $this->assertSame('Informasi pada dokumen keliru.', $assignments[0]->response->reason);
         $this->assertDatabaseHas('audit_events', ['action' => 'version.rejected', 'actor_guid' => $first->guid]);
         $this->assertDatabaseHas('email_notifications', ['notification_type' => 'version_rejected', 'status' => 'queued']);
+        $this->assertDatabaseHas('user_notifications', ['user_guid' => $owner->guid, 'event_type' => 'version.rejected', 'version_guid' => $version->guid]);
         $email = EmailNotification::where('notification_type', 'version_rejected')->firstOrFail();
         $this->app->make(DocumentEmailService::class)->deliver($email->guid);
         Notification::assertSentOnDemand(DocumentWorkflowNotification::class, fn ($notification): bool => $notification->type === 'version_rejected'

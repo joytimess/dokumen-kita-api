@@ -75,6 +75,7 @@ Contoh konfigurasi lokal memakai backend `http://localhost:8000` dan frontend `h
 | `DB_*` | Koneksi MySQL; database lokal pada contoh bernama `dokumen_kita_api`. |
 | `DOCUMENT_DISK` | Disk privat untuk sumber, preview, tanda tangan, dan final; contoh lokal `local`. |
 | `DOCUMENT_QUEUE_CONNECTION`, `DOCUMENT_QUEUE` | Koneksi dan nama queue pekerjaan dokumen; contoh `database` dan `documents`. |
+| `BROADCAST_CONNECTION`, `PUSHER_APP_ID`, `PUSHER_APP_KEY`, `PUSHER_APP_SECRET`, `PUSHER_APP_CLUSTER` | Transport realtime. Contoh lokal memakai `log`; staging Pusher memakai `BROADCAST_CONNECTION=pusher` dan kredensial server. Jangan kirim secret ke frontend. |
 | `MAIL_*` | Transport email. Nilai bawaan `MAIL_MAILER=log` menulis email ke log lokal, bukan mengirim ke inbox. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | Opsional untuk login Google. Redirect URI harus menunjuk ke `/api/v1/auth/google/callback` pada origin backend. |
 | `PDFTOTEXT_BINARY` | Opsional jika lokasi executable `pdftotext` tidak ada di `PATH`. |
@@ -107,7 +108,7 @@ Contoh perintah di bawah memakai PowerShell dan alamat dari `.env.example`. Siap
    php artisan serve --host=localhost --port=8000
    ```
 
-5. Jalankan worker pada terminal kedua dan scheduler pada terminal ketiga. Keduanya diperlukan agar impor, preview, PDF final, dan email antrean diproses:
+5. Jalankan worker pada terminal kedua dan scheduler pada terminal ketiga. Keduanya diperlukan agar impor, preview, PDF final, email, dan status realtime antrean diproses:
 
    ```powershell
    php artisan queue:work database --queue=documents,default --sleep=1 --tries=3 --timeout=75
@@ -120,6 +121,8 @@ Contoh perintah di bawah memakai PowerShell dan alamat dari `.env.example`. Siap
 6. Periksa `http://localhost:8000/up` dan, jika diperlukan, `php artisan route:list --path=api --no-interaction`.
 
 `DB_QUEUE_RETRY_AFTER` harus lebih besar daripada timeout worker (contoh bawaan: 90 detik vs 75 detik). Pada server yang dipasang permanen, jalankan worker sebagai proses terkelola dan panggil `php artisan schedule:run` setiap menit melalui scheduler server. `composer run dev` bawaan tidak menjalankan scheduler pekerjaan dokumen.
+
+Pusher memakai channel privat `private-users.{userGuid}` yang diotorisasi melalui `/broadcasting/auth` dengan sesi Sanctum. `BROADCAST_CONNECTION=log` hanya mencatat event lokal; publish diagnostik ke akun Pusher terkonfigurasi sudah berhasil, tetapi langganan browser, otorisasi dua akun, dan staging belum diverifikasi.
 
 ### Menjalankan frontend bersama API
 

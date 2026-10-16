@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\PreviewStatus;
 use App\Enums\VersionStatus;
 use App\Exceptions\ApiException;
+use App\Jobs\GenerateDocumentPreview;
 use App\Models\DocumentVersion;
 use App\Models\EmailNotification;
 use App\Models\User;
@@ -12,7 +13,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
-use App\Jobs\GenerateDocumentPreview;
 
 class DocumentPipelineService
 {
@@ -20,6 +20,7 @@ class DocumentPipelineService
         private readonly VersionWorkflow $workflow,
         private readonly AuditRecorder $audit,
         private readonly StoredPreviewSnapshot $snapshot,
+        private readonly RealtimeNotificationService $realtime,
     ) {}
 
     public function requestPreview(User $actor, DocumentVersion $version, string $source): DocumentVersion
@@ -173,6 +174,7 @@ class DocumentPipelineService
                     'notification_type' => 'version_completed', 'status' => 'queued',
                 ]);
                 $this->audit->record('version.completed', $locked->document, $locked, null, ['final_pdf_hash' => $locked->final_pdf_hash]);
+                $this->realtime->notifyOwner($locked, 'version.final_pdf_ready');
 
                 return true;
             });

@@ -17,6 +17,7 @@ class RevisionService
         private readonly VersionWorkflow $workflow,
         private readonly InvitationService $invitations,
         private readonly AuditRecorder $audit,
+        private readonly RealtimeNotificationService $realtime,
     ) {}
 
     /** @return array{previous: DocumentVersion, draft: DocumentVersion} */
@@ -89,6 +90,7 @@ class RevisionService
                 'next_version_guid' => $draft->guid,
                 'reason' => $reason,
             ]);
+            $this->realtime->notifyOwner($version, 'version.revision_requested', $requester);
 
             return ['previous' => $version, 'draft' => $draft];
         }, attempts: 3);
