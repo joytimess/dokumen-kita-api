@@ -944,7 +944,7 @@ components:
           type: boolean
         editor_data:
           type: [object, 'null']
-          description: Owner saja.
+          description: Owner saja. Blok delimiter disimpan tanpa atribut dan dibaca kembali dengan data kosong [].
         published_at:
           type: [string, 'null']
           format: date-time

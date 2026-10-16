@@ -12,7 +12,7 @@ use Illuminate\Validation\ValidationException;
  */
 class EditorDataSanitizer
 {
-    private const ALLOWED_TYPES = ['paragraph', 'header', 'list', 'table', 'image'];
+    private const ALLOWED_TYPES = ['paragraph', 'header', 'list', 'table', 'image', 'delimiter'];
 
     private const INLINE_TAGS = '<b><i><u><strong><em><mark><code><br><a>';
 
@@ -73,6 +73,7 @@ class EditorDataSanitizer
             'list' => ['style', 'items'],
             'table' => ['withHeadings', 'showBorders', 'content'],
             'image' => ['file', 'caption'],
+            'delimiter' => [],
         };
         foreach (array_keys($data) as $key) {
             if (! in_array($key, $allowedKeys, true)) {
@@ -89,6 +90,7 @@ class EditorDataSanitizer
             'list' => $this->sanitizeList($data, $path),
             'table' => $this->sanitizeTable($data, $path),
             'image' => $this->sanitizeImage($data, $path),
+            'delimiter' => [],
         }];
     }
 

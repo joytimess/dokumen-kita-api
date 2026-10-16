@@ -178,6 +178,56 @@ class DocumentApiTest extends TestCase
         $this->assertStringContainsString('<a href="https://ok.test/x" rel="noopener noreferrer">ok</a>', $text);
     }
 
+    public function test_delimiter_is_preserved_and_moving_it_invalidates_the_preview(): void
+    {
+        $owner = User::factory()->create();
+        $paragraphOne = ['type' => 'paragraph', 'data' => ['text' => 'Bagian pertama']];
+        $paragraphTwo = ['type' => 'paragraph', 'data' => ['text' => 'Bagian kedua']];
+        $delimiter = ['type' => 'delimiter', 'data' => (object) []];
+
+        $created = $this->actingAs($owner)->postJson('/api/v1/documents', [
+            'title' => 'Dokumen dengan pemisah',
+            'editor_data' => ['blocks' => [$paragraphOne, $delimiter, $paragraphTwo]],
+        ])->assertCreated()
+            ->assertJsonPath('data.current_version.editor_data.blocks.1.type', 'delimiter')
+            ->assertJsonPath('data.current_version.editor_data.blocks.1.data', []);
+
+        $versionGuid = $created->json('data.current_version.guid');
+        $version = DocumentVersion::where('guid', $versionGuid)->firstOrFail();
+        $version->update(['preview_status' => PreviewStatus::Ready, 'content_hash' => str_repeat('a', 64)]);
+        $assignment = SignerAssignment::factory()->create(['version_guid' => $versionGuid]);
+        $placeholder = SignaturePlaceholder::factory()->create([
+            'assignment_guid' => $assignment->guid,
+            'needs_review' => false,
+        ]);
+        $movedBlocks = [$paragraphOne, $paragraphTwo, $delimiter];
+
+        $this->patchJson("/api/v1/versions/{$versionGuid}", [
+            'editor_revision' => 1,
+            'editor_data' => ['blocks' => $movedBlocks],
+        ])->assertOk()
+            ->assertJsonPath('data.editor_data.blocks.1.type', 'paragraph')
+            ->assertJsonPath('data.editor_data.blocks.2.type', 'delimiter')
+            ->assertJsonPath('data.editor_data.blocks.2.data', [])
+            ->assertJsonPath('data.editor_revision', 2)
+            ->assertJsonPath('data.preview_status', 'stale')
+            ->assertJsonPath('data.content_hash', null);
+
+        $this->getJson("/api/v1/versions/{$versionGuid}")->assertOk()
+            ->assertJsonPath('data.editor_data.blocks.2.type', 'delimiter')
+            ->assertJsonPath('data.editor_data.blocks.2.data', []);
+        $this->assertSame([$paragraphOne, $paragraphTwo, ['type' => 'delimiter', 'data' => []]], $version->fresh()->editor_data_json['blocks']);
+        $this->assertTrue($placeholder->fresh()->needs_review);
+
+        $invalidBlocks = [$paragraphOne, $paragraphTwo, ['type' => 'delimiter', 'data' => ['style' => 'dashed']]];
+        $this->patchJson("/api/v1/versions/{$versionGuid}", [
+            'editor_revision' => 2,
+            'editor_data' => ['blocks' => $invalidBlocks],
+        ])->assertUnprocessable()
+            ->assertJsonStructure(['error' => ['errors' => ['editor_data.blocks.2.data.style']]]);
+        $this->assertSame(2, $version->fresh()->editor_revision);
+    }
+
     public function test_table_border_choices_are_saved_per_table_and_default_to_visible(): void
     {
         $owner = User::factory()->create();

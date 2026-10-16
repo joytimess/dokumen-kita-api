@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\PreviewStatus;
 use App\Exceptions\ApiException;
 use App\Models\ReadConfirmation;
 use App\Models\SignaturePlaceholder;
@@ -88,6 +89,56 @@ class PdfRendererWorkflowTest extends TestCase
         $mixedCommands = $mixedDocument->getPages()[0]->get('Contents')->getContent();
         $borderedCommands = $borderedDocument->getPages()[0]->get('Contents')->getContent();
         $this->assertLessThan(substr_count($borderedCommands, " S\n"), substr_count($mixedCommands, " S\n"));
+    }
+
+    public function test_preview_and_final_pdf_keep_the_delimiter_between_paragraphs(): void
+    {
+        Storage::fake('local');
+        config(['documents.disk' => 'local']);
+        $version = $this->draft(User::factory()->create(), [
+            'editor_data_json' => ['blocks' => [
+                ['type' => 'paragraph', 'data' => ['text' => 'Sebelum garis']],
+                ['type' => 'delimiter', 'data' => []],
+                ['type' => 'paragraph', 'data' => ['text' => 'Sesudah garis']],
+            ]],
+        ]);
+        $renderer = $this->app->make(PdfDocumentRenderer::class);
+        $preview = $renderer->preview($version);
+        $plainVersion = clone $version;
+        $plainPreview = $renderer->preview($plainVersion->setAttribute('editor_data_json', ['blocks' => [
+            ['type' => 'paragraph', 'data' => ['text' => 'Sebelum garis']],
+            ['type' => 'paragraph', 'data' => ['text' => 'Sesudah garis']],
+        ]]));
+        $parser = new Parser;
+        $previewDocument = $parser->parseContent($preview['bytes']);
+        $plainDocument = $parser->parseContent($plainPreview['bytes']);
+        $previewCommands = $previewDocument->getPages()[0]->get('Contents')->getContent();
+        $plainCommands = $plainDocument->getPages()[0]->get('Contents')->getContent();
+
+        $this->assertSame(1, $preview['pages']);
+        $this->assertSame(1, $plainPreview['pages']);
+        $this->assertGreaterThan(substr_count($plainCommands, " S\n"), substr_count($previewCommands, " S\n"));
+        $this->assertStringContainsString('Sebelum garis', $previewDocument->getText());
+        $this->assertStringContainsString('Sesudah garis', $previewDocument->getText());
+
+        $path = "documents/{$version->document_guid}/previews/{$version->guid}-delimiter.pdf";
+        Storage::disk('local')->put($path, $preview['bytes']);
+        $version->update([
+            'preview_status' => PreviewStatus::Ready,
+            'preview_source' => 'editor',
+            'preview_pdf_path' => $path,
+            'preview_page_count' => $preview['pages'],
+            'content_hash' => hash('sha256', $preview['bytes']),
+        ]);
+        $version->update(['editor_data_json' => ['blocks' => [
+            ['type' => 'paragraph', 'data' => ['text' => 'Editor berubah setelah snapshot']],
+        ]]]);
+        $finalDocument = $parser->parseContent($renderer->finalize($version->fresh()));
+
+        $this->assertCount(1, $finalDocument->getPages());
+        $this->assertStringContainsString('Sebelum garis', $finalDocument->getText());
+        $this->assertStringContainsString('Sesudah garis', $finalDocument->getText());
+        $this->assertStringNotContainsString('Editor berubah setelah snapshot', $finalDocument->getText());
     }
 
     public function test_final_pdf_embeds_each_signature_and_completes_only_after_file_is_saved(): void

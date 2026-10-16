@@ -156,6 +156,7 @@ class PdfDocumentRenderer
                 'list' => $this->listHtml($data['items'], $data['style']),
                 'table' => $this->tableHtml($data),
                 'image' => $this->imageHtml($data),
+                'delimiter' => '<hr class="editor-delimiter">',
             };
         }
 
@@ -163,6 +164,7 @@ class PdfDocumentRenderer
             .($hasDecorations ? '@page{margin:45mm 18mm}' : '@page{margin:20mm 18mm}')
             .'body{font-family:DejaVu Sans,sans-serif;font-size:11pt;line-height:1.5;color:#111}'
             .'p{margin:0 0 10pt}h1,h2,h3,h4,h5,h6{margin:12pt 0 7pt;page-break-after:avoid}'
+            .'hr.editor-delimiter{display:block;width:100%;height:0;border:0;border-top:1px solid #777;margin:10pt 0;page-break-inside:avoid}'
             .'table{border-collapse:collapse;table-layout:fixed;width:100%;margin:8pt 0}td,th{border:1px solid #777;padding:5pt;vertical-align:top;word-wrap:break-word}'
             .'table.table-without-borders td,table.table-without-borders th{border:0 none transparent}'
             .'img,figure{max-width:100%}figure{margin:8pt 0;text-align:center}figure img{max-width:100%;max-height:220mm}'
