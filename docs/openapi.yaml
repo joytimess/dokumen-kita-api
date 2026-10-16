@@ -3,19 +3,97 @@ info:
   title: dokumen-kita API
   version: 1.0.0
   description: |
-    Kontrak BE04 dan BE05. Endpoint auth, draft, impor, dan tahap selanjutnya belum dicakup.
+    Kontrak endpoint workflow signing serta riwayat dokumen. Endpoint auth, draft, impor, dan konversi belum dicakup.
     Sesi cookie Sanctum; SPA terlebih dahulu mengambil cookie CSRF dan mengirim
     X-XSRF-TOKEN pada request yang mengubah state. Semua path memakai GUID.
     Owner dapat menjadi signer pada urutan mana pun dan tetap menunggu giliran.
     Email dinormalisasi trim + lowercase tanpa mengubah titik atau plus.
     Publish memerlukan preview privat yang siap, hash SHA-256 cocok, jumlah
     halaman tersimpan, dan placeholder yang sudah ditinjau ulang.
-    Renderer produksi dan worker pengiriman email belum diimplementasikan.
+    Renderer dan worker email tersedia di aplikasi; operasi hosting dan delivery inbox tetap bergantung pada runtime.
 servers:
   - url: /api/v1
 security:
   - sessionCookie: []
 paths:
+  /documents/{documentGuid}/audit:
+    parameters:
+      - name: documentGuid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listDocumentAuditEvents
+      summary: Baca timeline audit dokumen
+      description: Owner melihat semua event; signer hanya event pada versi yang menugaskannya. Maksimal 100 item per halaman.
+      parameters:
+        - $ref: '#/components/parameters/PerPage'
+        - $ref: '#/components/parameters/Page'
+      responses:
+        '200':
+          $ref: '#/components/responses/AuditEventPage'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+  /documents/{documentGuid}/versions:
+    parameters:
+      - name: documentGuid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listDocumentVersions
+      summary: Baca riwayat versi dokumen
+      description: Owner melihat semua versi; signer hanya versi yang menugaskannya. Urutan terbaru lebih dulu.
+      parameters:
+        - $ref: '#/components/parameters/PerPage'
+        - $ref: '#/components/parameters/Page'
+      responses:
+        '200':
+          $ref: '#/components/responses/VersionPage'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+  /documents/{documentGuid}/emails:
+    parameters:
+      - name: documentGuid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listDocumentEmailDeliveries
+      summary: Baca status outbox email sebagai owner
+      description: Status queued berarti menunggu worker, sent berarti diterima transport, failed berarti retry habis; tidak membuktikan email masuk inbox.
+      parameters:
+        - $ref: '#/components/parameters/PerPage'
+        - $ref: '#/components/parameters/Page'
+      responses:
+        '200':
+          $ref: '#/components/responses/EmailNotificationPage'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
   /versions/{versionGuid}/signers:
     parameters:
       - $ref: '#/components/parameters/VersionGuid'
@@ -171,7 +249,8 @@ paths:
       operationId: resendAssignmentInvitation
       summary: Cabut token lama dan antrekan undangan baru sebagai owner
       description: |
-        Hanya pada versi terkini in_progress dan assignment ready atau waiting.
+        Hanya pada versi terkini in_progress dan assignment ready.
+        Assignment waiting belum memiliki undangan aktif untuk dikirim ulang.
         Token lama dicabut, outbox undangan queued/failed dibatalkan serta
         payloadnya dihapus. Maksimal 3 request/menit per owner + assignment.
         Respons tidak memuat token atau URL undangan.
@@ -187,6 +266,98 @@ paths:
         '409':
           $ref: '#/components/responses/Error'
         '429':
+          $ref: '#/components/responses/Error'
+  /assignments/{assignmentGuid}/reject:
+    parameters:
+      - $ref: '#/components/parameters/AssignmentGuid'
+    post:
+      operationId: rejectAssignment
+      summary: Tolak versi sebagai signer aktif
+      description: Penolakan terminal. Menyimpan alasan dan audit, mencabut undangan, menghentikan giliran, dan mengantrekan notifikasi owner. Tidak membuat draft revisi.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectionInput'
+      responses:
+        '200':
+          description: Versi ditolak.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/RejectionResult'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+  /versions/{versionGuid}/source:
+    parameters:
+      - $ref: '#/components/parameters/VersionGuid'
+    get:
+      operationId: downloadVersionSource
+      summary: Unduh sumber privat sebagai owner
+      description: Source hanya dapat dibaca owner; file PDF ditampilkan inline, DOCX diunduh sebagai attachment. Storage key tidak dikembalikan.
+      responses:
+        '200':
+          description: Berkas sumber privat.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: private, no-store
+            X-Content-Type-Options:
+              schema:
+                type: string
+                const: nosniff
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            application/vnd.openxmlformats-officedocument.wordprocessingml.document:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /versions/{versionGuid}/finalize:
+    parameters:
+      - $ref: '#/components/parameters/VersionGuid'
+    post:
+      operationId: retryVersionFinalization
+      summary: Antre ulang finalisasi versi sebagai owner
+      description: Hanya versi terkini berstatus finalizing. Jika gagal, error dibersihkan dan worker memproses ulang; respons 202 berarti diterima, bukan PDF selesai.
+      responses:
+        '202':
+          $ref: '#/components/responses/Version'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
           $ref: '#/components/responses/Error'
   /versions/{versionGuid}/pdf:
     parameters:
@@ -417,6 +588,21 @@ components:
       name: laravel-session
       description: Nama cookie mengikuti SESSION_COOKIE; default aplikasi laravel-session.
   parameters:
+    Page:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+    PerPage:
+      name: per_page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
     VersionGuid:
       name: versionGuid
       in: path
@@ -432,6 +618,122 @@ components:
         type: string
         format: uuid
   schemas:
+    RejectionInput:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 1000
+    RejectionResult:
+      type: object
+      required: [assignment_guid, assignment_status, version_guid, version_status, reason]
+      properties:
+        assignment_guid:
+          type: string
+          format: uuid
+        assignment_status:
+          type: string
+          const: rejected
+        version_guid:
+          type: string
+          format: uuid
+        version_status:
+          type: string
+          const: rejected
+        reason:
+          type: string
+    AuditEvent:
+      type: object
+      required: [guid, version_guid, actor_guid, action, metadata, created_at]
+      properties:
+        guid:
+          type: string
+          format: uuid
+        version_guid:
+          type: [string, 'null']
+          format: uuid
+        actor_guid:
+          type: [string, 'null']
+          format: uuid
+        action:
+          type: string
+        metadata:
+          type: [object, 'null']
+        created_at:
+          type: string
+          format: date-time
+    EmailNotification:
+      type: object
+      required: [guid, version_guid, assignment_guid, recipient_email, notification_type, status, attempt_count, scheduled_at, sent_at, last_error_code, created_at]
+      properties:
+        guid:
+          type: string
+          format: uuid
+        version_guid:
+          type: string
+          format: uuid
+        assignment_guid:
+          type: [string, 'null']
+          format: uuid
+        recipient_email:
+          type: string
+          format: email
+        notification_type:
+          type: string
+        status:
+          type: string
+          enum: [queued, sent, failed, cancelled]
+        attempt_count:
+          type: integer
+        scheduled_at:
+          type: [string, 'null']
+          format: date-time
+        sent_at:
+          type: [string, 'null']
+          format: date-time
+        last_error_code:
+          type: [string, 'null']
+        created_at:
+          type: string
+          format: date-time
+    AuditEventCollection:
+      type: object
+      required: [data, links, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        links:
+          type: object
+        meta:
+          type: object
+    VersionCollection:
+      type: object
+      required: [data, links, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Version'
+        links:
+          type: object
+        meta:
+          type: object
+    EmailNotificationCollection:
+      type: object
+      required: [data, links, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmailNotification'
+        links:
+          type: object
+        meta:
+          type: object
     ConfirmationInput:
       type: object
       required: [confirmed, version_content_hash]
@@ -656,7 +958,9 @@ components:
                 ASSIGNMENT_NOT_READY, VERSION_NOT_SIGNABLE, READ_CONFIRMATION_REQUIRED,
                 READ_CONFIRMATION_MISMATCH, IDEMPOTENCY_CONFLICT, SIGNING_ORDER_CONFLICT,
                 SIGNATURE_IMAGE_INVALID, SIGNATURE_IMAGE_EMPTY,
-                SIGNATURE_ASSET_UNAVAILABLE, SIGNATURE_ASSET_CHANGED.
+                SIGNATURE_ASSET_UNAVAILABLE, SIGNATURE_ASSET_CHANGED,
+                ASSIGNMENT_ALREADY_RESOLVED, REVISION_ALREADY_RESOLVED,
+                VERSION_NOT_SIGNABLE, VERSION_CONFLICT.
             message:
               type: string
             errors:
@@ -737,3 +1041,21 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorEnvelope'
+    AuditEventPage:
+      description: Halaman event audit.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AuditEventCollection'
+    VersionPage:
+      description: Halaman versi.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/VersionCollection'
+    EmailNotificationPage:
+      description: Halaman status outbox email.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/EmailNotificationCollection'

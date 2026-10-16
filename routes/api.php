@@ -1,9 +1,11 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AssignmentPlaceholderController;
+use App\Http\Controllers\Api\V1\AssignmentRejectionController;
 use App\Http\Controllers\Api\V1\AssignmentRevisionController;
 use App\Http\Controllers\Api\V1\AssignmentSignatureController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\DocumentActivityController;
 use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\DocumentImportController;
 use App\Http\Controllers\Api\V1\DocumentPdfController;
@@ -56,6 +58,9 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/', [DocumentController::class, 'index']);
             Route::post('/', [DocumentController::class, 'store']);
             Route::get('{document}', [DocumentController::class, 'show']);
+            Route::get('{document}/audit', [DocumentActivityController::class, 'audit']);
+            Route::get('{document}/versions', [DocumentActivityController::class, 'versions']);
+            Route::get('{document}/emails', [DocumentActivityController::class, 'emails']);
             Route::post('{document}/imports', [DocumentImportController::class, 'store'])->middleware('throttle:uploads');
         });
 
@@ -81,6 +86,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('{assignment}/read-confirmation', [ReadConfirmationController::class, 'store'])->middleware('throttle:30,1');
             Route::post('{assignment}/signatures', [AssignmentSignatureController::class, 'store'])->middleware('throttle:30,1');
             Route::post('{assignment}/revision-request', [AssignmentRevisionController::class, 'store'])->middleware('throttle:10,1');
+            Route::post('{assignment}/reject', [AssignmentRejectionController::class, 'store'])->middleware('throttle:10,1');
         });
 
         Route::prefix('signature-assets')->group(function (): void {

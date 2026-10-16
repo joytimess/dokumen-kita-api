@@ -30,6 +30,7 @@ class DocumentWorkflowNotification extends Notification
             'invitation_waiting' => 'Anda diundang sebagai penandatangan. Silakan klaim undangan; giliran Anda belum aktif.',
             'version_completed' => 'Semua persetujuan selesai dan PDF final sudah tersedia.',
             'revision_requested' => 'Penandatangan meminta revisi. Versi ini dihentikan dan draft baru sudah dibuat.',
+            'version_rejected' => 'Penandatangan menolak dokumen. Proses persetujuan versi ini dihentikan.',
             default => 'Semua persetujuan telah diterima. PDF final sedang diproses.',
         };
         $mail = (new MailMessage)->subject('Dokumen Kita — '.$this->title)
@@ -39,7 +40,7 @@ class DocumentWorkflowNotification extends Notification
                 ->line('Gunakan akun dengan email yang menerima undangan ini dan verifikasi email sebelum melanjutkan.');
         }
 
-        if ($this->type === 'revision_requested' && $this->reason !== null) {
+        if (in_array($this->type, ['revision_requested', 'version_rejected'], true) && $this->reason !== null) {
             if ($this->requester !== null) {
                 $mail->line('Peminta: '.e($this->requester));
             }
