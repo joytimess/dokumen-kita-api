@@ -156,26 +156,35 @@ class EditorDataSanitizer
 
         $rows = $data['content'] ?? null;
 
-        if (! is_array($rows) || count($rows) > config('documents.editor.max_table_rows')) {
+        if (! is_array($rows) || ! array_is_list($rows) || count($rows) > config('documents.editor.max_table_rows')) {
             $this->fail("$path.data.content", 'Tabel tidak valid atau terlalu besar.');
         }
 
         $clean = [];
 
         foreach (array_values($rows) as $r => $row) {
-            if (! is_array($row) || count($row) > config('documents.editor.max_table_columns')) {
+            if (! is_array($row) || ! array_is_list($row) || count($row) > config('documents.editor.max_table_columns')) {
                 $this->fail("$path.data.content.$r", 'Baris tabel tidak valid atau terlalu lebar.');
             }
 
             $cleanRow = [];
             foreach (array_values($row) as $column => $cell) {
-                if (is_array($cell) || is_object($cell)) {
-                    $this->fail("$path.data.content.$r.$column", 'Sel tabel kompleks belum didukung; gunakan satu teks tanpa gambar atau gabungan sel.');
+                $cellPath = "$path.data.content.$r.$column";
+                if (is_array($cell)) {
+                    if (! array_is_list($cell)) {
+                        $this->fail($cellPath, 'Penggabungan sel tabel belum didukung.');
+                    }
+                    if (count($cell) > config('documents.editor.max_blocks')) {
+                        $this->fail($cellPath, 'Jumlah blok sel melebihi batas.');
+                    }
+                    $cleanRow[] = array_map(fn (mixed $node, int $i): array => $this->sanitizeCellNode($node, "$cellPath.$i"), $cell, array_keys($cell));
+
+                    continue;
                 }
                 if (is_string($cell) && preg_match('/<\/?(?:p|div|img|table)\b/i', $cell)) {
-                    $this->fail("$path.data.content.$r.$column", 'Sel tabel hanya mendukung satu teks tanpa gambar atau paragraf bertingkat.');
+                    $this->fail($cellPath, 'HTML blok atau gambar mentah tidak didukung di sel tabel.');
                 }
-                $cleanRow[] = $this->text($cell ?? '', "$path.data.content.$r.$column");
+                $cleanRow[] = $this->text($cell, $cellPath);
             }
             $clean[] = $cleanRow;
         }
@@ -187,21 +196,113 @@ class EditorDataSanitizer
         ];
     }
 
+    /** @return array<string, mixed> */
+    private function sanitizeCellNode(mixed $node, string $path): array
+    {
+        if (! is_array($node) || ! in_array($node['type'] ?? null, ['paragraph', 'image'], true)) {
+            $this->fail($path, 'Tipe blok sel tidak didukung.');
+        }
+        $type = $node['type'];
+        foreach (array_keys($node) as $key) {
+            if (! in_array($key, $type === 'image' ? ['type', 'file', 'caption'] : ['type', 'content'], true)) {
+                $this->fail("$path.$key", 'Atribut blok sel tidak didukung.');
+            }
+        }
+        if ($type === 'image') {
+            if (! is_array($node['file'] ?? null) || count($node['file']) !== 1 || ! array_key_exists('url', $node['file'])) {
+                $this->fail("$path.file", 'Atribut gambar sel tidak didukung.');
+            }
+            $image = $this->sanitizeImage($node, $path);
+
+            return ['type' => 'image', ...$image];
+        }
+        $content = $node['content'] ?? null;
+        if (! is_array($content) || ! array_is_list($content) || count($content) > config('documents.editor.max_text_length')) {
+            $this->fail("$path.content", 'Isi paragraf sel tidak valid atau terlalu panjang.');
+        }
+        $clean = [];
+        $length = 0;
+        foreach ($content as $i => $inline) {
+            $inlinePath = "$path.content.$i";
+            if (! is_array($inline) || ! in_array($inline['type'] ?? null, ['text', 'hardBreak'], true)) {
+                $this->fail($inlinePath, 'Tipe teks sel tidak didukung.');
+            }
+            if ($inline['type'] === 'hardBreak') {
+                if (count($inline) !== 1) {
+                    $this->fail($inlinePath, 'Atribut baris baru tidak didukung.');
+                }
+                $clean[] = ['type' => 'hardBreak'];
+
+                continue;
+            }
+            foreach (array_keys($inline) as $key) {
+                if (! in_array($key, ['type', 'text', 'marks'], true)) {
+                    $this->fail("$inlinePath.$key", 'Atribut teks sel tidak didukung.');
+                }
+            }
+            if (! is_string($inline['text'] ?? null)) {
+                $this->fail("$inlinePath.text", 'Teks sel tidak valid.');
+            }
+            $length += mb_strlen($inline['text']);
+            if ($length > config('documents.editor.max_text_length')) {
+                $this->fail("$path.content", 'Teks sel terlalu panjang.');
+            }
+            $text = ['type' => 'text', 'text' => $inline['text']];
+            if (isset($inline['marks'])) {
+                if (! is_array($inline['marks']) || ! array_is_list($inline['marks'])) {
+                    $this->fail("$inlinePath.marks", 'Format teks sel tidak valid.');
+                }
+                $text['marks'] = [];
+                foreach ($inline['marks'] as $m => $mark) {
+                    $markPath = "$inlinePath.marks.$m";
+                    if (! is_array($mark) || ! in_array($mark['type'] ?? null, ['bold', 'italic', 'underline', 'code', 'highlight', 'link'], true)) {
+                        $this->fail($markPath, 'Format teks sel tidak didukung.');
+                    }
+                    if ($mark['type'] === 'link') {
+                        if (count($mark) !== 2 || ! is_array($mark['attrs'] ?? null) || count($mark['attrs']) !== 1 || ! is_string($mark['attrs']['href'] ?? null)) {
+                            $this->fail($markPath, 'Atribut tautan tidak valid.');
+                        }
+                        $href = $mark['attrs']['href'];
+                        if (! preg_match('#^(https?://|mailto:)#i', $href) || preg_match('/[\x00-\x20]/', $href)) {
+                            $this->fail("$markPath.attrs.href", 'Alamat tautan tidak aman.');
+                        }
+                        $text['marks'][] = ['type' => 'link', 'attrs' => ['href' => $href]];
+                    } else {
+                        if (count($mark) !== 1) {
+                            $this->fail($markPath, 'Atribut format teks tidak didukung.');
+                        }
+                        $text['marks'][] = ['type' => $mark['type']];
+                    }
+                }
+            }
+            $clean[] = $text;
+        }
+
+        return ['type' => 'paragraph', 'content' => $clean];
+    }
+
     /**
      * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
     private function sanitizeImage(array $data, string $path): array
     {
+        $imagePath = isset($data['type']) ? $path : "$path.data";
         $url = $data['file']['url'] ?? null;
 
         if (! is_string($url)
             || strlen($url) > config('documents.editor.max_image_data_length')
-            || ! preg_match('#^data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$#', $url)) {
-            $this->fail("$path.data.file.url", 'Gambar harus berupa data base64 png, jpeg, atau webp.');
+            || ! preg_match('#^data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$#', $url, $matches)) {
+            $this->fail("$imagePath.file.url", 'Gambar harus berupa data base64 png, jpeg, atau webp.');
+        }
+        $bytes = base64_decode(substr($url, strpos($url, ',') + 1), true);
+        $info = $bytes === false ? false : @getimagesizefromstring($bytes);
+        if ($info === false || $info[0] > config('documents.editor.max_image_width') || $info[1] > config('documents.editor.max_image_height')
+            || $info['mime'] !== 'image/'.$matches[1]) {
+            $this->fail("$imagePath.file.url", 'Gambar tidak valid atau dimensinya melebihi batas.');
         }
 
-        return ['file' => ['url' => $url], 'caption' => $this->text($data['caption'] ?? '', "$path.data.caption")];
+        return ['file' => ['url' => $url], 'caption' => $this->text($data['caption'] ?? '', "$imagePath.caption")];
     }
 
     private function text(mixed $value, string $path): string

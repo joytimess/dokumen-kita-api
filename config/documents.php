@@ -46,6 +46,8 @@ return [
         'max_table_rows' => 50,
         'max_table_columns' => 20,
         'max_image_data_length' => 700_000,
+        'max_image_width' => 4096,
+        'max_image_height' => 4096,
     ],
 
     'page_decorations' => [

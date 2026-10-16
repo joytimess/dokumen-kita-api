@@ -155,7 +155,7 @@ class PdfDocumentRenderer
                 'header' => '<h'.$data['level'].'>'.$data['text'].'</h'.$data['level'].'>',
                 'list' => $this->listHtml($data['items'], $data['style']),
                 'table' => $this->tableHtml($data),
-                'image' => '<figure><img src="'.$data['file']['url'].'" alt=""/><figcaption>'.$data['caption'].'</figcaption></figure>',
+                'image' => $this->imageHtml($data),
             };
         }
 
@@ -163,9 +163,10 @@ class PdfDocumentRenderer
             .($hasDecorations ? '@page{margin:45mm 18mm}' : '@page{margin:20mm 18mm}')
             .'body{font-family:DejaVu Sans,sans-serif;font-size:11pt;line-height:1.5;color:#111}'
             .'p{margin:0 0 10pt}h1,h2,h3,h4,h5,h6{margin:12pt 0 7pt;page-break-after:avoid}'
-            .'table{border-collapse:collapse;width:100%;margin:8pt 0}td,th{border:1px solid #777;padding:5pt;vertical-align:top}'
+            .'table{border-collapse:collapse;table-layout:fixed;width:100%;margin:8pt 0}td,th{border:1px solid #777;padding:5pt;vertical-align:top;word-wrap:break-word}'
             .'table.table-without-borders td,table.table-without-borders th{border:0 none transparent}'
             .'img,figure{max-width:100%}figure{margin:8pt 0;text-align:center}figure img{max-width:100%;max-height:220mm}'
+            .'td p:last-child,th p:last-child{margin-bottom:0}td figure,th figure{margin:4pt 0}td figure img,th figure img{max-width:100%;max-height:60mm}'
             .'figcaption{font-size:9pt;color:#555}li{margin-bottom:3pt}'
             .'</style></head><body>'.$body.'</body></html>';
     }
@@ -194,12 +195,52 @@ class PdfDocumentRenderer
             $cell = $data['withHeadings'] && $index === 0 ? 'th' : 'td';
             $html .= '<tr>';
             foreach ($row as $value) {
-                $html .= '<'.$cell.'>'.$value.'</'.$cell.'>';
+                $html .= '<'.$cell.'>';
+                if (is_string($value)) {
+                    $html .= '<p>'.$value.'</p>';
+                } else {
+                    foreach ($value as $node) {
+                        $html .= $node['type'] === 'image'
+                            ? $this->imageHtml($node)
+                            : '<p>'.$this->cellParagraphHtml($node['content']).'</p>';
+                    }
+                }
+                $html .= '</'.$cell.'>';
             }
             $html .= '</tr>';
         }
 
         return $html.'</table>';
+    }
+
+    /** @param array<string, mixed> $data */
+    private function imageHtml(array $data): string
+    {
+        return '<figure><img src="'.$data['file']['url'].'" alt=""/><figcaption>'.$data['caption'].'</figcaption></figure>';
+    }
+
+    /** @param list<array<string, mixed>> $content */
+    private function cellParagraphHtml(array $content): string
+    {
+        $html = '';
+        foreach ($content as $inline) {
+            if ($inline['type'] === 'hardBreak') {
+                $html .= '<br>';
+
+                continue;
+            }
+            $text = e($inline['text']);
+            foreach ($inline['marks'] ?? [] as $mark) {
+                $tag = match ($mark['type']) {
+                    'bold' => 'b', 'italic' => 'i', 'underline' => 'u', 'code' => 'code', 'highlight' => 'mark', 'link' => 'a',
+                };
+                $attributes = $tag === 'a' ? ' href="'.e($mark['attrs']['href']).'" rel="noopener noreferrer"' : '';
+                $text = '<'.$tag.$attributes.'>'.$text.'</'.$tag.'>';
+            }
+            $html .= $text;
+        }
+
+        return $html;
     }
 
     private function pageCount(string $bytes): int

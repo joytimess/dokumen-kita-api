@@ -22,6 +22,28 @@ API memakai GUID untuk identitas publik. Owner dan penerima mendapat akses berbe
 
 Kode utama berada di `routes/api.php`, `app/Http/Controllers/Api/V1`, `app/Http/Requests`, `app/Http/Resources`, `app/Policies`, `app/Services`, dan `app/Jobs`. Struktur data ada di `app/Models` dan `database/migrations`. Batas proses dokumen ada di `config/documents.php`.
 
+## Peta modul dan lokasi kode
+
+Mulai dari `routes/api.php` untuk menemukan endpoint. Route menunjuk ke controller; validasi input biasanya ada di `app/Http/Requests`, aturan akses di `app/Policies`, aturan bisnis di `app/Services`, dan bentuk respons di `app/Http/Resources`. Model dan relasi database berada di `app/Models`; perubahan skema ada di `database/migrations`.
+
+| Grup route di `routes/api.php` | Controller / request utama | Service dan lokasi terkait |
+| --- | --- | --- |
+| `auth/*`, `me` | `AuthController`, `GoogleAuthController`, `PasswordResetController`, `EmailVerificationController`, `MeController`; `app/Http/Requests/Auth/*` | `AuthService`, `GoogleAuthService`, `GoogleOAuthProvider`, `PasswordResetService`; `UserResource`, `AuthIdentity` |
+| `documents/*`, `documents/{document}/imports` | `DocumentController`, `DocumentImportController`; `StoreDocumentRequest`, `ImportDocumentRequest`, `ListDocumentsRequest` | `DocumentService`, `SourceFileInspector`; `DocumentResource`, `Document`, `DocumentPolicy` |
+| `versions/*` | `DocumentVersionController`, `VersionPreviewController`, `VersionConversionController`, `VersionSourceController`, `VersionFinalizationController`, `VersionDecorationController`, `VersionSignerController`, `VersionPublishController`, `DocumentPdfController`; request terkait di `app/Http/Requests/Document` | `VersionWorkflow`, `DocumentConversionService`, `SourceDocumentConverter`, `DocumentPipelineService`, `VersionDecorationService`, `PublishService`, `PdfDocumentRenderer`, `StoredPreviewSnapshot`; `DocumentVersionResource`, `DocumentVersionPolicy` |
+| `assignments/*` | `AssignmentPlaceholderController`, `AssignmentRevisionController`, `AssignmentSignatureController`, `ReadConfirmationController`, `InvitationController`; request terkait di `app/Http/Requests/Document` | `SigningSetupService`, `RevisionService`, `SignatureService`, `ReadConfirmationService`, `InvitationService`; `SignerAssignmentPolicy`, `SignaturePlaceholderResource`, `SignerAssignmentResource`, `RevisionResultResource` |
+| `signature-assets/*` | `SignatureAssetController`; `StoreSignatureAssetRequest` | `SignatureAssetService`; `SignatureAssetResource`, `SignatureAssetPolicy`, model `SignatureAsset` |
+| `invitations/claim` | `InvitationController`; `ClaimInvitationRequest` | `InvitationService`; model `InvitationLink` dan `SignerAssignment` |
+
+### Lanjutan alur dan referensi
+
+- Model dan data: `app/Models`; schema dan indeks: `database/migrations`.
+- Pekerjaan asynchronous: `app/Jobs` (`ConvertDocumentImport`, `GenerateDocumentPreview`, `FinalizeDocument`, `DeliverDocumentEmail`); alur antrean dan orkestrasi: `DocumentPipelineService`.
+- Email, audit, dan notifikasi: `DocumentEmailService`, `AuditRecorder`, `app/Models/EmailNotification.php`, `app/Models/AuditEvent.php`, serta model notifikasi terkait.
+- Pengaturan upload, disk, antrean dokumen, dan batas pemrosesan: `config/documents.php`; definisi jadwal: `routes/console.php`.
+- Tes endpoint dan workflow: `tests/Feature`; factory dan data uji: `database/factories` dan `tests/Feature/*Fixtures.php`.
+- Kontrak endpoint: `docs/openapi.yaml`. Untuk daftar route hasil registrasi Laravel: `php artisan route:list --path=api --no-interaction`.
+
 ## Teknologi dan library utama
 
 | Komponen | Peran |
