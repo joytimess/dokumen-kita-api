@@ -175,6 +175,11 @@ class DocumentPipelineService
                 ]);
                 $this->audit->record('version.completed', $locked->document, $locked, null, ['final_pdf_hash' => $locked->final_pdf_hash]);
                 $this->realtime->notifyOwner($locked, 'version.final_pdf_ready');
+                foreach ($locked->assignments()->with('user')->get() as $assignment) {
+                    if ($assignment->user_guid !== null && $assignment->user_guid !== $locked->document->owner_guid) {
+                        $this->realtime->notifyAssignment($locked, $assignment, 'version.final_pdf_ready');
+                    }
+                }
 
                 return true;
             });

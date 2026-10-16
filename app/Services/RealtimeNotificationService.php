@@ -45,6 +45,7 @@ class RealtimeNotificationService
 
             try {
                 $payload = $notification->payload_json ?? [];
+                unset($payload['title'], $payload['message']);
                 $payload['notification_guid'] = $notification->guid;
                 event(new DocumentStatusChanged($notification->user_guid, $payload));
                 $delivery->update(['status' => 'delivered', 'attempt_count' => $attempt, 'next_attempt_at' => null, 'delivered_at' => now()]);
@@ -67,6 +68,7 @@ class RealtimeNotificationService
     {
         $assignmentGuid = $assignment?->guid;
         $deduplicationKey = $eventType.':'.$version->guid.':'.($assignmentGuid ?? 'version');
+        $content = $this->content($version, $eventType, $assignment);
         $notification = UserNotification::firstOrCreate([
             'user_guid' => $recipient->guid,
             'deduplication_key' => $deduplicationKey,
@@ -82,9 +84,48 @@ class RealtimeNotificationService
                 'version_status' => $version->status->value,
                 'assignment_guid' => $assignmentGuid,
                 'assignment_status' => $assignment?->status,
-            ],
+            ] + $content,
         ]);
 
         RealtimeDelivery::firstOrCreate(['notification_guid' => $notification->guid]);
+    }
+
+    /** @return array{title: string, message: string} */
+    private function content(DocumentVersion $version, string $eventType, ?SignerAssignment $assignment): array
+    {
+        $document = $version->document->title;
+        $versionLabel = 'dokumen '.$document.', versi '.$version->version_number;
+        $signer = $assignment?->user?->name ?? 'Penandatangan';
+
+        return match ($eventType) {
+            'assignment.ready' => [
+                'title' => 'Giliran tanda tangan Anda',
+                'message' => 'Anda diminta menandatangani '.$versionLabel.'.',
+            ],
+            'assignment.signed' => [
+                'title' => 'Dokumen telah ditandatangani',
+                'message' => $signer.' telah menandatangani '.$versionLabel.'.',
+            ],
+            'version.revision_requested' => [
+                'title' => 'Revisi dokumen diminta',
+                'message' => $signer.' meminta revisi untuk '.$versionLabel.'.',
+            ],
+            'version.rejected' => [
+                'title' => 'Dokumen ditolak',
+                'message' => $signer.' menolak '.$versionLabel.'.',
+            ],
+            'version.final_pdf_ready' => [
+                'title' => 'PDF final tersedia',
+                'message' => 'PDF final '.$versionLabel.' sudah tersedia.',
+            ],
+            'version.final_pdf_failed' => [
+                'title' => 'PDF final gagal diproses',
+                'message' => 'PDF final '.$versionLabel.' belum berhasil dibuat.',
+            ],
+            default => [
+                'title' => 'Pembaruan dokumen',
+                'message' => 'Ada pembaruan pada '.$versionLabel.'.',
+            ],
+        };
     }
 }

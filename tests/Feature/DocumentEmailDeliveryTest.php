@@ -31,12 +31,16 @@ class DocumentEmailDeliveryTest extends TestCase
         $this->app->make(PublishService::class)->publish($owner, $version);
         $email = EmailNotification::firstOrFail();
         $url = $email->payload['invitation_url'];
+        parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+        $expectedUrl = rtrim(config('app.frontend_url'), '/').'/register?'.http_build_query([
+            'invitation_token' => $query['token'],
+        ]);
         $service = $this->app->make(DocumentEmailService::class);
 
         $service->deliver($email->guid);
         $service->deliver($email->guid);
 
-        Notification::assertSentOnDemand(DocumentWorkflowNotification::class, fn ($notification, $channels, $notifiable): bool => $notification->invitationUrl === $url && $notifiable->routes['mail'] === $email->recipient_email);
+        Notification::assertSentOnDemand(DocumentWorkflowNotification::class, fn ($notification, $channels, $notifiable): bool => $notification->invitationUrl === $expectedUrl && $notifiable->routes['mail'] === $email->recipient_email);
         Notification::assertCount(1);
         $this->assertDatabaseHas('email_notifications', ['guid' => $email->guid, 'status' => 'sent', 'attempt_count' => 1, 'payload' => null]);
         $this->assertNotNull($email->fresh()->sent_at);

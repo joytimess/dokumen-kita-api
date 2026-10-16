@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\V1\MeController;
 use App\Http\Controllers\Api\V1\PasswordResetController;
 use App\Http\Controllers\Api\V1\ReadConfirmationController;
 use App\Http\Controllers\Api\V1\SignatureAssetController;
+use App\Http\Controllers\Api\V1\UserNotificationController;
 use App\Http\Controllers\Api\V1\VersionConversionController;
 use App\Http\Controllers\Api\V1\VersionDecorationController;
 use App\Http\Controllers\Api\V1\VersionFinalizationController;
@@ -53,6 +54,9 @@ Route::prefix('v1')->group(function (): void {
 
     Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('me', [MeController::class, 'show']);
+
+        Route::get('notifications', [UserNotificationController::class, 'index']);
+        Route::patch('notifications/{notification}/read', [UserNotificationController::class, 'read']);
 
         Route::prefix('documents')->group(function (): void {
             Route::get('/', [DocumentController::class, 'index']);

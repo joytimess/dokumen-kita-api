@@ -11,6 +11,7 @@ info:
     Publish memerlukan preview privat yang siap, hash SHA-256 cocok, jumlah
     halaman tersimpan, dan placeholder yang sudah ditinjau ulang.
     Renderer dan worker email tersedia di aplikasi; operasi hosting dan delivery inbox tetap bergantung pada runtime.
+    Saat email undangan dikirim, penerima akun diarahkan ke /login dan lainnya ke /register dengan invitation_token.
 servers:
   - url: /api/v1
 x-realtime:
@@ -26,7 +27,7 @@ x-realtime:
     assignment.signed: owner
     version.revision_requested: owner
     version.rejected: owner
-    version.final_pdf_ready: owner
+    version.final_pdf_ready: owner and claimed signers
     version.final_pdf_failed: owner
   payload: [notification_guid, event_type, document_guid, version_guid, version_status, assignment_guid, assignment_status]
   delivery: durable outbox; 3 attempts with 1-minute and 5-minute delays; consumers can deduplicate by notification_guid
@@ -34,6 +35,57 @@ x-realtime:
 security:
   - sessionCookie: []
 paths:
+  /notifications:
+    get:
+      operationId: listUserNotifications
+      summary: Baca notifikasi milik pengguna yang login
+      description: Urutan terbaru dahulu; default 20 item per halaman (maksimal 100). unread_count menghitung semua notifikasi yang tampil, bukan hanya halaman aktif. Membuka daftar tidak menandai item dibaca.
+      parameters:
+        - $ref: '#/components/parameters/PerPage'
+        - $ref: '#/components/parameters/Page'
+      responses:
+        '200':
+          $ref: '#/components/responses/UserNotificationPage'
+        '401':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+  /notifications/{notificationGuid}/read:
+    parameters:
+      - name: notificationGuid
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      operationId: markUserNotificationRead
+      summary: Tandai satu notifikasi sebagai dibaca
+      description: Idempoten; read_at mempertahankan waktu baca pertama. Pengguna lain mendapat 404.
+      responses:
+        '200':
+          description: Notifikasi setelah ditandai dibaca.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/UserNotification'
+                  meta:
+                    allOf:
+                      - $ref: '#/components/schemas/Meta'
+                      - type: object
+                        required: [unread_count]
+                        properties:
+                          unread_count:
+                            type: integer
+                            minimum: 0
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
   /documents/{documentGuid}/audit:
     parameters:
       - name: documentGuid
@@ -716,6 +768,34 @@ components:
         created_at:
           type: string
           format: date-time
+    UserNotification:
+      type: object
+      required: [guid, event_type, title, message, document_guid, version_guid, assignment_guid, created_at, read_at]
+      properties:
+        guid:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+        title:
+          type: string
+        message:
+          type: string
+        document_guid:
+          type: [string, 'null']
+          format: uuid
+        version_guid:
+          type: [string, 'null']
+          format: uuid
+        assignment_guid:
+          type: [string, 'null']
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        read_at:
+          type: [string, 'null']
+          format: date-time
     AuditEventCollection:
       type: object
       required: [data, links, meta]
@@ -752,6 +832,25 @@ components:
           type: object
         meta:
           type: object
+    UserNotificationCollection:
+      type: object
+      required: [data, links, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserNotification'
+        links:
+          type: object
+        meta:
+          allOf:
+            - $ref: '#/components/schemas/Meta'
+            - type: object
+              required: [unread_count]
+              properties:
+                unread_count:
+                  type: integer
+                  minimum: 0
     ConfirmationInput:
       type: object
       required: [confirmed, version_content_hash]
@@ -1077,3 +1176,9 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/EmailNotificationCollection'
+    UserNotificationPage:
+      description: Halaman notifikasi pengguna beserta jumlah belum dibaca.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/UserNotificationCollection'

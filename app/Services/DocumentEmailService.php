@@ -5,9 +5,11 @@ namespace App\Services;
 use App\Enums\VersionStatus;
 use App\Models\EmailNotification;
 use App\Models\InvitationLink;
+use App\Models\User;
 use App\Notifications\DocumentWorkflowNotification;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Str;
 use Throwable;
 
 class DocumentEmailService
@@ -50,6 +52,21 @@ class DocumentEmailService
 
                     return;
                 }
+                parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+                $token = $query['token'] ?? null;
+                if (! is_string($token) || ! hash_equals($invitation->token_hash, hash('sha256', $token))) {
+                    $email->update(['status' => 'failed', 'last_error_code' => 'INVITATION_PAYLOAD_MISSING']);
+
+                    return;
+                }
+
+                $registered = User::where('email', Str::lower(trim($email->recipient_email)))
+                    ->lockForUpdate()
+                    ->first(['guid']) !== null;
+                $destination = $registered ? '/login' : '/register';
+                $url = rtrim(config('app.frontend_url'), '/').$destination.'?'.http_build_query([
+                    'invitation_token' => $token,
+                ]);
             } elseif (! (($email->notification_type === 'version_finalizing' && $version->status === VersionStatus::Finalizing)
                 || ($email->notification_type === 'version_completed' && $version->status === VersionStatus::Completed)
                 || ($email->notification_type === 'revision_requested' && $version->status === VersionStatus::RevisionRequested)
