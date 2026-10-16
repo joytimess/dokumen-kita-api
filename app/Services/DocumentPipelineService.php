@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
+use App\Jobs\GenerateDocumentPreview;
 
 class DocumentPipelineService
 {
@@ -23,27 +24,33 @@ class DocumentPipelineService
 
     public function requestPreview(User $actor, DocumentVersion $version, string $source): DocumentVersion
     {
-        return DB::transaction(function () use ($actor, $version, $source): DocumentVersion {
+        $dispatch = null;
+
+        $result = DB::transaction(function () use ($actor, $version, $source, &$dispatch): DocumentVersion {
             $locked = $this->workflow->lock($version);
             $this->workflow->assertDraft($locked);
             $this->workflow->assertCurrent($locked);
+
             if ($locked->conversion_status !== 'none' && $locked->conversion_status !== 'ready') {
                 throw ApiException::conflict('CONVERSION_NOT_READY', 'Tunggu hasil konversi atau perbaiki kegagalannya sebelum membuat preview.');
             }
+
             if ($source === 'upload' && $locked->conversion_status !== 'none') {
                 throw ApiException::conflict('EDITOR_PREVIEW_REQUIRED', 'Preview impor yang dapat diedit harus bersumber dari editor.');
             }
+
             if ($source === 'upload' && ! $locked->source_path) {
                 throw new ApiException(422, 'SOURCE_REQUIRED', 'Impor berkas sebelum membuat preview dari upload.');
             }
+
             if ($source === 'upload' && ($locked->letterhead !== null || $locked->footer !== null)) {
                 throw new ApiException(422, 'EDITOR_PREVIEW_REQUIRED', 'Kop atau footer memerlukan preview dari editor agar isi tidak tertimpa.');
             }
-            if ($locked->preview_status === PreviewStatus::Queued && $locked->preview_source === $source) {
-                return $locked;
-            }
+
+            $generation = (string) Str::uuid();
+
             $locked->update([
-                'preview_generation' => (string) Str::uuid(),
+                'preview_generation' => $generation,
                 'preview_source' => $source,
                 'preview_status' => PreviewStatus::Queued,
                 'preview_error_code' => null,
@@ -51,13 +58,28 @@ class DocumentPipelineService
                 'content_hash' => null,
                 'preview_page_count' => null,
             ]);
+
             foreach ($locked->assignments()->get() as $assignment) {
                 $assignment->placeholders()->update(['needs_review' => true]);
             }
+
             $this->audit->record('version.preview_requested', $locked->document, $locked, $actor, ['source' => $source]);
+
+            $dispatch = [
+                'guid' => $locked->guid,
+                'generation' => $generation,
+            ];
 
             return $locked;
         });
+
+        if ($dispatch !== null) {
+            GenerateDocumentPreview::dispatch($dispatch['guid'], $dispatch['generation'])
+                ->afterCommit()
+                ->onQueue('documents');
+        }
+
+        return $result;
     }
 
     public function generatePreview(string $guid, string $generation, PdfDocumentRenderer $renderer): void

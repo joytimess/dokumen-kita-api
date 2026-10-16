@@ -9,4 +9,4 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('auth:prune-password-challenges')->daily();
-Schedule::command('documents:process')->everyMinute()->withoutOverlapping();
+Schedule::command('documents:process')->everyFiveSeconds()->withoutOverlapping();
