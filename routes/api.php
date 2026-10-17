@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\DocumentActivityController;
 use App\Http\Controllers\Api\V1\DocumentCategoryController;
 use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\DocumentImportController;
+use App\Http\Controllers\Api\V1\DocumentOcrController;
 use App\Http\Controllers\Api\V1\DocumentPdfController;
 use App\Http\Controllers\Api\V1\DocumentVersionController;
 use App\Http\Controllers\Api\V1\EmailChangeController;
@@ -76,6 +77,7 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/', [DocumentController::class, 'index']);
             Route::post('/', [DocumentController::class, 'store']);
             Route::patch('categories', [DocumentCategoryController::class, 'bulkAssign']);
+            Route::patch('{document}/visibility', [DocumentController::class, 'updateVisibility']);
             Route::patch('{document}/category', [DocumentCategoryController::class, 'assign']);
             Route::get('{document}', [DocumentController::class, 'show']);
             Route::get('{document}/audit', [DocumentActivityController::class, 'audit']);
@@ -95,6 +97,9 @@ Route::prefix('v1')->group(function (): void {
 
         Route::prefix('versions')->group(function (): void {
             Route::get('{version}', [DocumentVersionController::class, 'show']);
+            Route::get('{version}/ocr', [DocumentOcrController::class, 'show']);
+            Route::post('{version}/ocr', [DocumentOcrController::class, 'store'])->middleware('throttle:10,1');
+            Route::post('{version}/ocr/retry', [DocumentOcrController::class, 'retry'])->middleware('throttle:10,1');
             Route::post('{version}/preview', [VersionPreviewController::class, 'store'])->middleware('throttle:10,1');
             Route::post('{version}/convert-import', [VersionConversionController::class, 'store'])->middleware('throttle:10,1');
             Route::get('{version}/source', [VersionSourceController::class, 'show']);

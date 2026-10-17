@@ -20,6 +20,8 @@ class DocumentResource extends ApiResource
             'public_reference' => $this->public_reference,
             'title' => $this->title,
             'status' => $this->status,
+            'hidden_at' => $this->hidden_at,
+            'is_hidden' => $this->hidden_at !== null,
             'owner_guid' => $this->owner_guid,
             'category_guid' => $this->category_guid,
             'category' => new DocumentCategoryResource($this->whenLoaded('category')),

@@ -23,7 +23,7 @@ class Document extends Model
      */
     protected function casts(): array
     {
-        return ['status' => VersionStatus::class];
+        return ['status' => VersionStatus::class, 'hidden_at' => 'immutable_datetime'];
     }
 
     /**

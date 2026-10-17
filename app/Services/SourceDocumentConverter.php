@@ -17,7 +17,10 @@ use ZipArchive;
 
 class SourceDocumentConverter
 {
-    public function __construct(private readonly EditorDataSanitizer $sanitizer) {}
+    public function __construct(
+        private readonly EditorDataSanitizer $sanitizer,
+        private readonly CloudVisionOcrClient $vision,
+    ) {}
 
     /** @return array{editor_data: array<string, mixed>, pages: int, warnings: list<string>} */
     public function convert(SourceType $type, string $sourcePath): array
@@ -79,17 +82,52 @@ class SourceDocumentConverter
             $fallback = true;
         }
         $pages = $fallback ? $this->phpPdfPages($path) : (preg_split('/\f/', $process->getOutput()) ?: []);
-        while (count($pages) > 1 && trim(end($pages)) === '') {
-            array_pop($pages);
+        if ($fallback) {
+            while (count($pages) > 1 && trim(end($pages)) === '') {
+                array_pop($pages);
+            }
+        } else {
+            $pages = $this->preservePdfPageCount($path, $pages);
         }
         if (count($pages) > (int) config('documents.processing.max_pages')) {
             throw new ApiException(422, 'DOCUMENT_PAGE_LIMIT', 'Jumlah halaman melewati batas.');
         }
-        if (trim(implode('', $pages)) === '') {
-            throw new ApiException(422, 'PDF_TEXT_LAYER_MISSING', 'PDF tidak memiliki teks yang dapat diedit; OCR belum tersedia.');
+
+        $scannedPages = array_keys(array_filter($pages, fn (string $page): bool => trim($page) === ''));
+        $unrecognizedPages = [];
+        if ($scannedPages !== []) {
+            if (! $this->vision->isConfigured()) {
+                throw new ApiException(422, 'PDF_TEXT_LAYER_MISSING', 'PDF scan membutuhkan OCR yang belum dikonfigurasi.');
+            }
+
+            $bytes = file_get_contents($path);
+            if (! is_string($bytes) || count($scannedPages) > (int) config('documents.ocr.max_pages')
+                || strlen($bytes) > (int) config('documents.ocr.max_bytes')) {
+                throw new ApiException(422, 'OCR_LIMIT_EXCEEDED', 'PDF melewati batas halaman atau ukuran OCR.');
+            }
+
+            $recognizedPages = [];
+            foreach (array_chunk(array_map(fn (int $page): int => $page + 1, $scannedPages), 5) as $batch) {
+                $recognizedPages += $this->vision->annotate($bytes, $batch);
+            }
+            foreach ($scannedPages as $pageIndex) {
+                $pages[$pageIndex] = implode(' ', array_column($recognizedPages[$pageIndex + 1]['words'] ?? [], 'text'));
+                if (trim($pages[$pageIndex]) === '') {
+                    $unrecognizedPages[] = $pageIndex;
+                }
+            }
+            if (trim(implode('', $pages)) === '') {
+                throw new ApiException(422, 'OCR_TEXT_UNRECOGNIZED', 'OCR tidak menemukan teks yang dapat diedit pada PDF.');
+            }
         }
 
         $warnings = ['PDF_LAYOUT_APPROXIMATE', 'PDF_GRAPHICS_REQUIRE_REVIEW', 'PDF_TABLES_REQUIRE_REVIEW'];
+        if ($scannedPages !== []) {
+            $warnings[] = 'PDF_OCR_APPLIED';
+        }
+        if ($unrecognizedPages !== []) {
+            $warnings[] = 'PDF_OCR_PARTIAL';
+        }
         $images = $this->pdfImages($path, count($pages), $warnings);
         $blocks = [];
         foreach ($pages as $pageIndex => $page) {
@@ -121,6 +159,26 @@ class SourceDocumentConverter
             'pages' => max(1, count($pages)),
             'warnings' => $warnings,
         ];
+    }
+
+    /** @param list<string> $pages
+     * @return list<string>
+     */
+    private function preservePdfPageCount(string $path, array $pages): array
+    {
+        try {
+            $config = new PdfParserConfig;
+            $config->setDecodeMemoryLimit(32 * 1024 * 1024);
+            $count = count((new PdfParser([], $config))->parseFile($path)->getPages());
+
+            return array_pad(array_slice($pages, 0, $count), $count, '');
+        } catch (\Throwable) {
+            while (count($pages) > 1 && trim(end($pages)) === '') {
+                array_pop($pages);
+            }
+
+            return $pages;
+        }
     }
 
     /** @param list<string> $warnings

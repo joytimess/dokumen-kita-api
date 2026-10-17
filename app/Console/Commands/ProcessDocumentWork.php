@@ -7,6 +7,8 @@ use App\Jobs\DeliverDocumentEmail;
 use App\Jobs\DeliverRealtimeNotification;
 use App\Jobs\FinalizeDocument;
 use App\Jobs\GenerateDocumentPreview;
+use App\Jobs\ProcessDocumentOcr;
+use App\Models\DocumentOcrPage;
 use App\Models\DocumentVersion;
 use App\Models\EmailNotification;
 use App\Models\RealtimeDelivery;
@@ -54,6 +56,8 @@ class ProcessDocumentWork extends Command
                     DeliverRealtimeNotification::dispatch($delivery->guid);
                 }
             });
+        DocumentOcrPage::where('status', 'queued')->distinct()->get(['version_guid', 'pdf_hash'])
+            ->each(fn (DocumentOcrPage $page) => ProcessDocumentOcr::dispatch($page->version_guid, $page->pdf_hash));
 
         return self::SUCCESS;
     }

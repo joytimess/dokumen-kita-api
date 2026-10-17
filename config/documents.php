@@ -37,6 +37,14 @@ return [
         'max_kilobytes' => (int) env('DOCUMENT_IMPORT_MAX_KB', 20480),
     ],
 
+    'ocr' => [
+        'enabled' => (bool) env('DOCUMENT_OCR_ENABLED', false),
+        'credentials' => env('DOCUMENT_OCR_CREDENTIALS'),
+        'max_pages' => (int) env('DOCUMENT_OCR_MAX_PAGES', 10),
+        'max_bytes' => (int) env('DOCUMENT_OCR_MAX_BYTES', 8388608),
+        'timeout' => min(20, max(5, (int) env('DOCUMENT_OCR_TIMEOUT', 20))),
+    ],
+
     'editor' => [
         'max_blocks' => 500,
         'max_bytes' => 1_048_576,

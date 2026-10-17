@@ -19,6 +19,7 @@ class ListDocumentsRequest extends FormRequest
             'q' => ['sometimes', 'nullable', 'string', 'max:200'],
             'category_guid' => ['sometimes', 'nullable', 'uuid'],
             'uncategorized' => ['sometimes', 'boolean'],
+            'visibility' => ['sometimes', 'in:active,hidden'],
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
         ];
     }

@@ -68,6 +68,7 @@ class DocumentCategoryController extends Controller
         $page = $documents->paginateForOwner(
             $request->user(), $request->validated('status'), (int) $request->validated('per_page', 15),
             $request->validated('q'), $category,
+            false, $request->validated('visibility', 'active'),
         );
 
         return DocumentResource::collection($page)->additional(['meta' => ['request_id' => $request->attributes->get('request_id')]]);

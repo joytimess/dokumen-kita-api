@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Document\ListDocumentsRequest;
 use App\Http\Requests\Document\StoreDocumentRequest;
+use App\Http\Requests\Document\UpdateDocumentVisibilityRequest;
 use App\Http\Resources\DocumentResource;
 use App\Models\Document;
 use App\Services\DocumentService;
@@ -25,6 +26,7 @@ class DocumentController extends Controller
             $request->validated('q'),
             $request->validated('category_guid'),
             $request->boolean('uncategorized'),
+            $request->validated('visibility', 'active'),
         );
 
         return DocumentResource::collection($page)
@@ -50,5 +52,16 @@ class DocumentController extends Controller
             'latestVersion.document', 'latestVersion.assignments.placeholders',
             'latestVersion.assignments.readConfirmation', 'latestVersion.assignments.signature',
         ));
+    }
+
+    public function updateVisibility(UpdateDocumentVisibilityRequest $request, Document $document): DocumentResource
+    {
+        Gate::authorize('manage', $document);
+
+        $document = $this->documents
+            ->setVisibility($document, $request->boolean('hidden'))
+            ->load('latestVersion.document', 'category');
+
+        return new DocumentResource($document);
     }
 }

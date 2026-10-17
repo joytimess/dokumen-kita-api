@@ -58,7 +58,7 @@ class DocumentService
     /**
      * @return LengthAwarePaginator<int, Document>
      */
-    public function paginateForOwner(User $owner, ?string $status, int $perPage, ?string $search = null, ?string $categoryGuid = null, bool $uncategorized = false): LengthAwarePaginator
+    public function paginateForOwner(User $owner, ?string $status, int $perPage, ?string $search = null, ?string $categoryGuid = null, bool $uncategorized = false, string $visibility = 'active'): LengthAwarePaginator
     {
         if ($categoryGuid !== null && ! DocumentCategory::where('owner_guid', $owner->guid)->where('guid', $categoryGuid)->exists()) {
             abort(404);
@@ -66,6 +66,7 @@ class DocumentService
 
         return Document::query()
             ->where('owner_guid', $owner->guid)
+            ->when($visibility === 'hidden', fn ($query) => $query->whereNotNull('hidden_at'), fn ($query) => $query->whereNull('hidden_at'))
             ->when($status, fn ($query) => $query->where('status', $status))
             ->when($search !== null && $search !== '', function ($query) use ($search): void {
                 $pattern = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower($search)).'%';
@@ -76,6 +77,15 @@ class DocumentService
             ->with('latestVersion.document', 'category')
             ->orderByDesc('id')
             ->paginate($perPage);
+    }
+
+    public function setVisibility(Document $document, bool $hidden): Document
+    {
+        $query = DB::table('documents')->where('id', $document->getKey());
+        $query = $hidden ? $query->whereNull('hidden_at') : $query->whereNotNull('hidden_at');
+        $query->update(['hidden_at' => $hidden ? now() : null]);
+
+        return $document->refresh();
     }
 
     /**

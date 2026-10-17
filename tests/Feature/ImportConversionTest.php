@@ -4,11 +4,14 @@ namespace Tests\Feature;
 
 use App\Models\DocumentVersion;
 use App\Models\User;
+use App\Services\CloudVisionOcrClient;
 use App\Services\DocumentConversionService;
 use App\Services\DocumentPipelineService;
 use App\Services\PdfDocumentRenderer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Mockery\MockInterface;
 use Smalot\PdfParser\Parser;
 use Tests\TestCase;
 use ZipArchive;
@@ -56,6 +59,82 @@ class ImportConversionTest extends TestCase
         $this->assertStringNotContainsString('First page editable', $renderedText);
         $this->get("/api/v1/versions/{$versionGuid}/source")->assertOk()->assertHeader('Content-Type', 'application/pdf');
         $this->actingAs(User::factory()->create())->get("/api/v1/versions/{$versionGuid}/source")->assertNotFound();
+    }
+
+    public function test_scanned_pdf_import_uses_ocr_text_in_editor_blocks(): void
+    {
+        Storage::fake('local');
+        config(['documents.disk' => 'local']);
+        $this->mock(CloudVisionOcrClient::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('isConfigured')->once()->andReturn(true);
+            $mock->shouldReceive('annotate')->once()->withArgs(fn (string $bytes, array $pages): bool => $pages === [1, 2, 3])
+                ->andReturn([
+                    1 => ['words' => [['text' => 'OCR'], ['text' => 'page'], ['text' => 'one']]],
+                    2 => ['words' => [['text' => 'OCR'], ['text' => 'page'], ['text' => 'two']]],
+                    3 => ['words' => [['text' => 'OCR'], ['text' => 'page'], ['text' => 'three']]],
+                ]);
+        });
+
+        $owner = User::factory()->create();
+        $created = $this->actingAs($owner)->postJson('/api/v1/documents', [
+            'title' => 'PDF scan',
+        ])->assertCreated();
+        $versionGuid = $created->json('data.current_version.guid');
+        $queued = $this->postJson('/api/v1/documents/'.$created->json('data.guid').'/imports', [
+            'file' => UploadedFileFactory::content('scan.pdf', $this->scannedPdf()),
+        ])->assertAccepted();
+
+        $this->app->make(DocumentConversionService::class)->convert($versionGuid, $queued->json('data.conversion_generation'));
+
+        $result = $this->getJson('/api/v1/versions/'.$versionGuid)->assertJsonPath('data.conversion_status', 'ready');
+        $blocks = $result->json('data.editor_data.blocks');
+        $this->assertSame(3, $result->json('data.conversion_page_count'));
+        $texts = array_column(array_values(array_filter($blocks, fn (array $block): bool => $block['type'] === 'paragraph')), 'data');
+        $this->assertSame(['OCR page one', 'OCR page two', 'OCR page three'], array_column($texts, 'text'));
+        $this->assertContains('image', array_column($blocks, 'type'));
+        $this->assertContains('PDF_OCR_APPLIED', $result->json('data.conversion_warnings'));
+    }
+
+    public function test_cloud_vision_file_response_reads_nested_page_results(): void
+    {
+        Storage::fake('local');
+        $key = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_RSA, 'private_key_bits' => 2048]);
+        openssl_pkey_export($key, $privateKey);
+        Storage::disk('local')->put('testing/vision.json', json_encode([
+            'client_email' => 'ocr@example.test', 'private_key' => $privateKey,
+            'token_uri' => 'https://oauth2.googleapis.com/token',
+        ], JSON_THROW_ON_ERROR));
+        config([
+            'documents.ocr.enabled' => true,
+            'documents.ocr.credentials' => Storage::disk('local')->path('testing/vision.json'),
+        ]);
+        Http::fake([
+            'https://oauth2.googleapis.com/token' => Http::response(['access_token' => 'test-token', 'expires_in' => 3600]),
+            'https://vision.googleapis.com/v1/files:annotate' => Http::response(['responses' => [[
+                'responses' => [[
+                    'context' => ['pageNumber' => 1],
+                    'fullTextAnnotation' => ['pages' => [[
+                        'width' => 100, 'height' => 200,
+                        'blocks' => [[
+                            'paragraphs' => [[
+                                'words' => [[
+                                    'symbols' => [['text' => 'Scan']],
+                                    'boundingBox' => ['normalizedVertices' => [
+                                        ['x' => 0.1, 'y' => 0.2], ['x' => 0.4, 'y' => 0.2],
+                                        ['x' => 0.4, 'y' => 0.25], ['x' => 0.1, 'y' => 0.25],
+                                    ]],
+                                ]],
+                            ]],
+                        ]],
+                    ]]],
+                ]],
+            ]]]),
+        ]);
+
+        $result = app(CloudVisionOcrClient::class)->annotate('%PDF-test', [1]);
+
+        $this->assertSame('Scan', $result[1]['words'][0]['text']);
+        $this->assertSame(0.1, $result[1]['words'][0]['polygon'][0][0]);
     }
 
     public function test_import_requires_replace_confirmation_and_old_job_cannot_overwrite_edit(): void
@@ -182,6 +261,41 @@ class ImportConversionTest extends TestCase
         }
 
         return $pdf."trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n".$xref."\n%%EOF\n";
+    }
+
+    private function scannedPdf(): string
+    {
+        $image = imagecreatetruecolor(20, 20);
+        imagefill($image, 0, 0, imagecolorallocate($image, 30, 80, 140));
+        ob_start();
+        imagejpeg($image);
+        $jpeg = ob_get_clean();
+        imagedestroy($image);
+        $content = "q 500 0 0 700 50 50 cm /Im0 Do Q\n";
+        $objects = [
+            '<< /Type /Catalog /Pages 2 0 R >>',
+            '<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 >>',
+            '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /XObject << /Im0 6 0 R >> >> /Contents 7 0 R >>',
+            '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /XObject << /Im0 6 0 R >> >> /Contents 8 0 R >>',
+            '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /XObject << /Im0 6 0 R >> >> /Contents 9 0 R >>',
+            '<< /Type /XObject /Subtype /Image /Width 20 /Height 20 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length '.strlen($jpeg)." >>\nstream\n".$jpeg."\nendstream",
+            '<< /Length '.strlen($content)." >>\nstream\n".$content.'endstream',
+            '<< /Length '.strlen($content)." >>\nstream\n".$content.'endstream',
+            '<< /Length '.strlen($content)." >>\nstream\n".$content.'endstream',
+        ];
+        $pdf = "%PDF-1.4\n";
+        $offsets = [];
+        foreach ($objects as $index => $object) {
+            $offsets[] = strlen($pdf);
+            $pdf .= ($index + 1)." 0 obj\n".$object."\nendobj\n";
+        }
+        $xref = strlen($pdf);
+        $pdf .= "xref\n0 10\n0000000000 65535 f \n";
+        foreach ($offsets as $offset) {
+            $pdf .= sprintf("%010d 00000 n \n", $offset);
+        }
+
+        return $pdf."trailer\n<< /Size 10 /Root 1 0 R >>\nstartxref\n".$xref."\n%%EOF\n";
     }
 
     private function docx(): string
