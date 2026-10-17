@@ -159,14 +159,21 @@ class DocumentApiTest extends TestCase
         $owner = User::factory()->create();
         $version = $this->ownedDraft($owner);
 
+        $cellParagraph = [
+            'type' => 'paragraph',
+            'content' => [['type' => 'text', 'text' => 'Sel', 'marks' => [['type' => 'fontFamily', 'attrs' => ['fontFamily' => 'Georgia']]]]],
+        ];
+        $fontCell = ['type' => 'table', 'data' => ['content' => [[[$cellParagraph]]]]];
         $payload = ['blocks' => [
-            ['type' => 'paragraph', 'data' => ['text' => 'Hi <script>alert(1)</script><b onclick="x()">tebal</b> <a href="javascript:alert(1)">bad</a> <a href="https://ok.test/x" onmouseover="y()">ok</a> <img src=x onerror=alert(1)>']],
+            ['type' => 'paragraph', 'data' => ['text' => 'Hi <span data-font-family="Arial">surat</span><script>alert(1)</script><b onclick="x()">tebal</b> <a href="javascript:alert(1)">bad</a> <a href="https://ok.test/x" onmouseover="y()">ok</a> <img src=x onerror=alert(1)>']],
             ['type' => 'list', 'data' => ['style' => 'ordered', 'items' => ['<i>satu</i>', ['content' => 'dua', 'items' => ['tiga']]]]],
             ['type' => 'table', 'data' => ['withHeadings' => true, 'content' => [['<u>a</u>', 'b'], ['c', 'd']]]],
+            $fontCell,
         ]];
 
         $text = $this->actingAs($owner)->patchJson("/api/v1/versions/{$version->guid}", ['editor_revision' => 1, 'editor_data' => $payload])
             ->assertOk()
+            ->assertJsonPath('data.editor_data.blocks.3.data.content.0.0.0.content.0.marks.0.attrs.fontFamily', 'Georgia')
             ->json('data.editor_data.blocks.0.data.text');
 
         $this->assertStringNotContainsString('script', $text);
@@ -174,8 +181,14 @@ class DocumentApiTest extends TestCase
         $this->assertStringNotContainsString('onmouseover', $text);
         $this->assertStringNotContainsString('javascript:', $text);
         $this->assertStringNotContainsString('<img', $text);
+        $this->assertStringContainsString('<span data-font-family="Arial">surat</span>', $text);
         $this->assertStringContainsString('<b>tebal</b>', $text);
         $this->assertStringContainsString('<a href="https://ok.test/x" rel="noopener noreferrer">ok</a>', $text);
+
+        $this->patchJson("/api/v1/versions/{$version->guid}", [
+            'editor_revision' => 2,
+            'editor_data' => ['blocks' => [['type' => 'paragraph', 'data' => ['text' => '<span data-font-family="Papyrus">teks</span>']]]],
+        ])->assertUnprocessable()->assertJsonPath('error.code', 'VALIDATION_FAILED');
     }
 
     public function test_delimiter_is_preserved_and_moving_it_invalidates_the_preview(): void

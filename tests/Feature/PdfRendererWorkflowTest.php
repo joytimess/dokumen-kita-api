@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\DocumentPipelineService;
 use App\Services\PdfDocumentRenderer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Smalot\PdfParser\Parser;
 use Tests\TestCase;
@@ -18,6 +19,103 @@ use Tests\TestCase;
 class PdfRendererWorkflowTest extends TestCase
 {
     use RefreshDatabase, SignatureFixtures;
+
+    public function test_editor_preview_renders_only_supported_font_family_mappings(): void
+    {
+        $cellParagraph = [
+            'type' => 'paragraph',
+            'content' => [['type' => 'text', 'text' => 'Times cell', 'marks' => [['type' => 'fontFamily', 'attrs' => ['fontFamily' => 'Times New Roman']]]]],
+        ];
+        $fontCell = ['type' => 'table', 'data' => ['content' => [[[$cellParagraph]]]]];
+        $version = $this->draft(User::factory()->create(), ['editor_data_json' => ['blocks' => [
+            ['type' => 'paragraph', 'data' => ['text' => '<span data-font-family="Arial">Arial</span> <span data-font-family="Calibri">Calibri</span> <span data-font-family="Aptos">Aptos</span> <span data-font-family="Georgia">Georgia</span>']],
+            $fontCell,
+        ]]]);
+
+        $preview = $this->app->make(PdfDocumentRenderer::class)->preview($version);
+        $document = (new Parser)->parseContent($preview['bytes']);
+
+        $this->assertSame(1, $preview['pages']);
+        foreach (['Arial', 'Calibri', 'Aptos', 'Georgia', 'Times cell'] as $text) {
+            $this->assertStringContainsString($text, $document->getText());
+        }
+        $fontNames = array_map(fn ($font) => $font->getName(), $document->getFonts());
+        $this->assertContains('Helvetica', $fontNames);
+        $this->assertContains('Times-Roman', $fontNames);
+        $this->assertTrue(collect($fontNames)->contains(fn ($name) => str_contains($name, 'DejaVuSans')));
+        $this->assertTrue(collect($fontNames)->contains(fn ($name) => str_contains($name, 'DejaVuSerif')));
+    }
+
+    public function test_editor_preview_preserves_intrinsic_image_size_and_scales_table_images_with_captions(): void
+    {
+        Storage::fake('local');
+        config(['documents.disk' => 'local']);
+        $version = $this->draft(User::factory()->create(), ['editor_data_json' => ['blocks' => [
+            ['type' => 'image', 'data' => ['file' => ['url' => $this->imageDataUri(96, 48)], 'caption' => '']],
+            ['type' => 'table', 'data' => [
+                'withHeadings' => false,
+                'content' => [[[[
+                    'type' => 'image', 'file' => ['url' => $this->imageDataUri(1600, 1200)], 'caption' => 'Tanda tangan sintetis',
+                ]]]],
+            ]],
+        ]]]);
+
+        $preview = $this->app->make(PdfDocumentRenderer::class)->preview($version);
+        $document = (new Parser)->parseContent($preview['bytes']);
+        $this->assertSame(1, $preview['pages']);
+        $this->assertStringContainsString('Tanda tangan sintetis', $document->getText());
+
+        $commands = $document->getPages()[0]->get('Contents')->getContent();
+        preg_match_all('/([\d.]+)\s+0\s+0\s+([\d.]+)\s+[\d.]+\s+[\d.]+\s+cm\s+\/[^\s]+\s+Do/s', $commands, $images);
+        $this->assertCount(2, $images[0], $commands);
+        $this->assertEqualsWithDelta(72, (float) $images[1][0], 0.1);
+        $this->assertLessThanOrEqual(60 * 72 / 25.4 + 0.001, (float) $images[2][1]);
+    }
+
+    public function test_body_image_height_respects_the_decorated_content_area(): void
+    {
+        Storage::fake('local');
+        config(['documents.disk' => 'local']);
+        $owner = User::factory()->create();
+        $version = $this->draft($owner, ['editor_data_json' => ['blocks' => [
+            ['type' => 'image', 'data' => ['file' => ['url' => $this->imageDataUri(512, 4096)], 'caption' => 'Spesimen']],
+        ]]]);
+        $renderer = $this->app->make(PdfDocumentRenderer::class);
+        $plain = $renderer->preview($version);
+        $plainContents = (new Parser)->parseContent($plain['bytes'])->getPages()[0]->get('Contents')->getContent();
+        preg_match('/([\d.]+)\s+0\s+0\s+([\d.]+)\s+[\d.]+\s+[\d.]+\s+cm\s+\/[^\s]+\s+Do/s', $plainContents, $plainImage);
+
+        $this->actingAs($owner)->post("/api/v1/versions/{$version->guid}/decorations/footer", [
+            'editor_revision' => 1,
+            'file' => UploadedFile::fake()->image('footer.png', 400, 80),
+        ], ['Accept' => 'application/json'])->assertOk();
+        $decorated = $renderer->preview($version->fresh());
+        $decoratedDocument = (new Parser)->parseContent($decorated['bytes']);
+        $decoratedContents = $decoratedDocument->getPages()[0]->get('Contents')->getContent();
+        preg_match_all('/([\d.]+)\s+0\s+0\s+([\d.]+)\s+[\d.]+\s+[\d.]+\s+cm\s+\/[^\s]+\s+Do/s', $decoratedContents, $decoratedImages);
+
+        $bodyImageHeight = max(array_map('floatval', $decoratedImages[2]));
+        $this->assertLessThanOrEqual(220 * 72 / 25.4 + 0.001, (float) $plainImage[2]);
+        $this->assertLessThan((float) $plainImage[2], $bodyImageHeight);
+        $this->assertLessThan(207 * 72 / 25.4, $bodyImageHeight);
+        $this->assertSame(1, $decorated['pages']);
+        $this->assertStringContainsString('Spesimen', $decoratedDocument->getText());
+    }
+
+    public function test_table_row_that_cannot_fit_one_page_fails_with_an_actionable_preview_error(): void
+    {
+        $version = $this->draft(User::factory()->create(), ['editor_data_json' => ['blocks' => [
+            ['type' => 'table', 'data' => ['content' => [[str_repeat('Isi sel terlalu panjang. ', 500)]]]],
+        ]]]);
+
+        try {
+            $this->app->make(PdfDocumentRenderer::class)->preview($version);
+            $this->fail('An oversized table row should not produce a preview.');
+        } catch (ApiException $exception) {
+            $this->assertSame('PREVIEW_RENDER_FAILED', $exception->errorCode);
+            $this->assertStringContainsString('Pendekkan isi baris', $exception->getMessage());
+        }
+    }
 
     public function test_editor_preview_contains_saved_text_and_edit_invalidates_its_hash(): void
     {
@@ -193,5 +291,16 @@ class PdfRendererWorkflowTest extends TestCase
         } catch (ApiException $exception) {
             $this->assertSame('DOCUMENT_PAGE_LIMIT', $exception->errorCode);
         }
+    }
+
+    private function imageDataUri(int $width, int $height): string
+    {
+        $image = imagecreatetruecolor($width, $height);
+        ob_start();
+        imagepng($image);
+        $bytes = ob_get_clean();
+        imagedestroy($image);
+
+        return 'data:image/png;base64,'.base64_encode($bytes);
     }
 }

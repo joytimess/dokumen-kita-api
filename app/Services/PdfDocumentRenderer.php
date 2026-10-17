@@ -15,6 +15,46 @@ use Throwable;
 
 class PdfDocumentRenderer
 {
+    private const PAGE_WIDTH_MM = 210;
+
+    private const PAGE_HEIGHT_MM = 297;
+
+    private const PAGE_SIDE_MARGIN_MM = 18;
+
+    private const PAGE_MARGIN_MM = 20;
+
+    private const DECORATED_PAGE_MARGIN_MM = 45;
+
+    private const BODY_IMAGE_MAX_HEIGHT_MM = 220;
+
+    private const CELL_IMAGE_MAX_HEIGHT_MM = 60;
+
+    private const TABLE_CELL_PADDING_PT = 5;
+
+    private const TABLE_BORDER_PT = 0.75;
+
+    private const BODY_FIGURE_MARGIN_PT = 8;
+
+    private const CELL_FIGURE_MARGIN_PT = 4;
+
+    private const CAPTION_FONT_PT = 9;
+
+    private const CAPTION_LINE_HEIGHT = 1.2;
+
+    private const CAPTION_AVERAGE_CHAR_WIDTH_EM = 0.65;
+
+    private const IMAGE_FIT_SAFETY_MM = 5;
+
+    private const BODY_AVERAGE_CHAR_WIDTH_EM = 0.5;
+
+    private const BODY_FONT_SIZE_PT = 11;
+
+    private const BODY_LINE_HEIGHT = 1.5;
+
+    private const PARAGRAPH_MARGIN_BOTTOM_PT = 10;
+
+    private const TABLE_VERTICAL_MARGIN_PT = 8;
+
     public function __construct(
         private readonly EditorDataSanitizer $sanitizer,
         private readonly StoredPreviewSnapshot $snapshot,
@@ -147,6 +187,9 @@ class PdfDocumentRenderer
     /** @param array<string, mixed> $editor */
     private function html(array $editor, bool $hasDecorations = false): string
     {
+        $margin = $hasDecorations ? self::DECORATED_PAGE_MARGIN_MM : self::PAGE_MARGIN_MM;
+        $contentHeight = self::PAGE_HEIGHT_MM - 2 * $margin;
+        $contentWidth = self::PAGE_WIDTH_MM - 2 * self::PAGE_SIDE_MARGIN_MM;
         $body = '';
         foreach ($editor['blocks'] as $block) {
             $data = $block['data'];
@@ -154,22 +197,26 @@ class PdfDocumentRenderer
                 'paragraph' => '<p>'.$data['text'].'</p>',
                 'header' => '<h'.$data['level'].'>'.$data['text'].'</h'.$data['level'].'>',
                 'list' => $this->listHtml($data['items'], $data['style']),
-                'table' => $this->tableHtml($data),
-                'image' => $this->imageHtml($data),
+                'table' => $this->tableHtml($data, $contentWidth, $contentHeight),
+                'image' => $this->imageHtml($data, $contentWidth, self::BODY_IMAGE_MAX_HEIGHT_MM, $contentHeight, self::BODY_FIGURE_MARGIN_PT)['html'],
                 'delimiter' => '<hr class="editor-delimiter">',
             };
         }
 
         return '<!doctype html><html><head><meta charset="utf-8"><style>'
-            .($hasDecorations ? '@page{margin:45mm 18mm}' : '@page{margin:20mm 18mm}')
-            .'body{font-family:DejaVu Sans,sans-serif;font-size:11pt;line-height:1.5;color:#111}'
-            .'p{margin:0 0 10pt}h1,h2,h3,h4,h5,h6{margin:12pt 0 7pt;page-break-after:avoid}'
+            .'@page{size:A4 portrait;margin:'.$margin.'mm '.self::PAGE_SIDE_MARGIN_MM.'mm}'
+            .'body{margin:0;padding:0;font-family:DejaVu Sans,sans-serif;font-size:'.self::BODY_FONT_SIZE_PT.'pt;line-height:'.self::BODY_LINE_HEIGHT.';color:#111}'
+            .'[data-font-family="Arial"]{font-family:Helvetica,sans-serif}[data-font-family="Calibri"],[data-font-family="Aptos"]{font-family:DejaVu Sans,sans-serif}'
+            .'[data-font-family="Times New Roman"]{font-family:Times,serif}[data-font-family="Georgia"]{font-family:DejaVu Serif,serif}'
+            .'p{margin:0 0 '.self::PARAGRAPH_MARGIN_BOTTOM_PT.'pt}h1,h2,h3,h4,h5,h6{margin:12pt 0 7pt;line-height:'.self::BODY_LINE_HEIGHT.';page-break-after:avoid}'
+            .'h1{font-size:2em}h2{font-size:1.5em}h3{font-size:1.17em}h4{font-size:1em}h5{font-size:.83em}h6{font-size:.67em}'
+            .'ul,ol{margin:11pt 0;padding-left:24px}ul{list-style-type:disc}ul ul{list-style-type:circle}ul ul ul{list-style-type:square}ol{list-style-type:decimal}ol ol{list-style-type:lower-alpha}ol ol ol{list-style-type:lower-roman}'
             .'hr.editor-delimiter{display:block;width:100%;height:0;border:0;border-top:1px solid #777;margin:10pt 0;page-break-inside:avoid}'
-            .'table{border-collapse:collapse;table-layout:fixed;width:100%;margin:8pt 0}td,th{border:1px solid #777;padding:5pt;vertical-align:top;word-wrap:break-word}'
+            .'table{border-collapse:collapse;table-layout:fixed;width:100%;margin:'.self::TABLE_VERTICAL_MARGIN_PT.'pt 0}td,th{border:1px solid #777;padding:'.self::TABLE_CELL_PADDING_PT.'pt;vertical-align:top;word-wrap:break-word;overflow-wrap:anywhere}tr{page-break-inside:avoid}'
             .'table.table-without-borders td,table.table-without-borders th{border:0 none transparent}'
-            .'img,figure{max-width:100%}figure{margin:8pt 0;text-align:center}figure img{max-width:100%;max-height:220mm}'
-            .'td p:last-child,th p:last-child{margin-bottom:0}td figure,th figure{margin:4pt 0}td figure img,th figure img{max-width:100%;max-height:60mm}'
-            .'figcaption{font-size:9pt;color:#555}li{margin-bottom:3pt}'
+            .'figure{display:block;max-width:100%;margin:'.self::BODY_FIGURE_MARGIN_PT.'pt 0;text-align:center;page-break-inside:avoid}figure img{display:block;max-width:100%;margin:0 auto}'
+            .'td p:last-child,th p:last-child{margin-bottom:0}td figure,th figure{margin:'.self::CELL_FIGURE_MARGIN_PT.'pt 0}td figure img,th figure img{max-height:'.self::CELL_IMAGE_MAX_HEIGHT_MM.'mm}'
+            .'figcaption{font-size:'.self::CAPTION_FONT_PT.'pt;line-height:'.self::CAPTION_LINE_HEIGHT.';color:#555;text-align:center}li{margin-bottom:3pt}'
             .'</style></head><body>'.$body.'</body></html>';
     }
 
@@ -190,35 +237,130 @@ class PdfDocumentRenderer
     }
 
     /** @param array<string, mixed> $data */
-    private function tableHtml(array $data): string
+    private function tableHtml(array $data, float $contentWidthMm, float $contentHeightMm): string
     {
+        $columns = max([1, ...array_map('count', $data['content'])]);
+        $borderPt = ($data['showBorders'] ?? true) ? self::TABLE_BORDER_PT * 2 : 0;
+        $cellWidthMm = $contentWidthMm / $columns - $this->ptToMm(self::TABLE_CELL_PADDING_PT * 2 + $borderPt);
         $html = ($data['showBorders'] ?? true) ? '<table>' : '<table class="table-without-borders">';
+        $html .= '<colgroup>'.str_repeat('<col style="width:'.(100 / $columns).'%">', $columns).'</colgroup>';
         foreach ($data['content'] as $index => $row) {
             $cell = $data['withHeadings'] && $index === 0 ? 'th' : 'td';
             $html .= '<tr>';
+            $rowHeightPt = 0;
             foreach ($row as $value) {
                 $html .= '<'.$cell.'>';
+                $cellHeightPt = 2 * self::TABLE_CELL_PADDING_PT + (($data['showBorders'] ?? true) ? 2 * self::TABLE_BORDER_PT : 0);
                 if (is_string($value)) {
                     $html .= '<p>'.$value.'</p>';
+                    $cellHeightPt += $this->textLines($value, $cellWidthMm) * self::BODY_FONT_SIZE_PT * self::BODY_LINE_HEIGHT;
                 } else {
-                    foreach ($value as $node) {
-                        $html .= $node['type'] === 'image'
-                            ? $this->imageHtml($node)
-                            : '<p>'.$this->cellParagraphHtml($node['content']).'</p>';
+                    $lastNode = count($value) - 1;
+                    foreach ($value as $nodeIndex => $node) {
+                        if ($node['type'] === 'image') {
+                            $image = $this->imageHtml($node, $cellWidthMm, self::CELL_IMAGE_MAX_HEIGHT_MM, $contentHeightMm, self::CELL_FIGURE_MARGIN_PT);
+                            $html .= $image['html'];
+                            $cellHeightPt += $this->mmToPt($image['heightMm']);
+                        } else {
+                            $html .= '<p>'.$this->cellParagraphHtml($node['content']).'</p>';
+                            $cellHeightPt += $this->textLines($this->cellText($node['content']), $cellWidthMm) * self::BODY_FONT_SIZE_PT * self::BODY_LINE_HEIGHT;
+                            if ($nodeIndex < $lastNode) {
+                                $cellHeightPt += self::PARAGRAPH_MARGIN_BOTTOM_PT;
+                            }
+                        }
                     }
                 }
                 $html .= '</'.$cell.'>';
+                $rowHeightPt = max($rowHeightPt, $cellHeightPt);
             }
             $html .= '</tr>';
+            if ($this->mmToPt($contentHeightMm - self::IMAGE_FIT_SAFETY_MM) < $rowHeightPt + 2 * self::TABLE_VERTICAL_MARGIN_PT) {
+                throw new ApiException(422, 'PREVIEW_RENDER_FAILED', 'Satu baris tabel terlalu tinggi untuk satu area halaman. Pendekkan isi baris lalu buat preview lagi.');
+            }
         }
 
         return $html.'</table>';
     }
 
     /** @param array<string, mixed> $data */
-    private function imageHtml(array $data): string
+    /** @return array{html: string, heightMm: float} */
+    private function imageHtml(array $data, float $maxWidthMm, float $maxImageHeightMm, float $contentHeightMm, float $figureMarginPt): array
     {
-        return '<figure><img src="'.$data['file']['url'].'" alt=""/><figcaption>'.$data['caption'].'</figcaption></figure>';
+        $url = $data['file']['url'];
+        $bytes = base64_decode(substr($url, strpos($url, ',') + 1), true);
+        $dimensions = $bytes === false ? false : @getimagesizefromstring($bytes);
+        if ($dimensions === false) {
+            throw new ApiException(422, 'PREVIEW_RENDER_FAILED', 'Gambar editor tidak dapat dibaca untuk membuat preview.');
+        }
+
+        $intrinsicWidthMm = $dimensions[0] * 25.4 / 96;
+        $intrinsicHeightMm = $dimensions[1] * 25.4 / 96;
+        $caption = trim($data['caption']);
+        $captionHeightMm = $this->captionHeightMm($caption, $maxWidthMm);
+        $availableImageHeightMm = min(
+            $maxImageHeightMm,
+            $contentHeightMm - $captionHeightMm - $this->ptToMm($figureMarginPt * 2) - self::IMAGE_FIT_SAFETY_MM,
+        );
+        if ($availableImageHeightMm <= 0) {
+            throw new ApiException(422, 'PREVIEW_RENDER_FAILED', 'Caption gambar terlalu tinggi untuk area halaman. Pendekkan caption lalu buat preview lagi.');
+        }
+
+        $scale = min(1, $maxWidthMm / $intrinsicWidthMm, $availableImageHeightMm / $intrinsicHeightMm);
+        $widthMm = floor($intrinsicWidthMm * $scale * 1000) / 1000;
+        $heightMm = floor($intrinsicHeightMm * $scale * 1000) / 1000;
+        $captionHtml = $caption === '' ? '' : '<figcaption>'.$caption.'</figcaption>';
+
+        return [
+            'html' => '<figure><img src="'.$url.'" alt="" style="width:'.$widthMm.'mm;height:'.$heightMm.'mm"/>'.$captionHtml.'</figure>',
+            'heightMm' => $heightMm + $captionHeightMm + $this->ptToMm($figureMarginPt * 2),
+        ];
+    }
+
+    /** @param list<array<string, mixed>> $content */
+    private function cellText(array $content): string
+    {
+        return implode('', array_map(fn (array $inline): string => $inline['type'] === 'hardBreak' ? "\n" : $inline['text'], $content));
+    }
+
+    private function textLines(string $text, float $widthMm): int
+    {
+        // shortcut: wrapping uses average glyph widths; use Dompdf frame measurements if real fixtures expose a mismatch.
+        $text = preg_replace('#<br\s*/?>#i', "\n", $text) ?? $text;
+        $text = html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $charactersPerLine = max(1, (int) floor($widthMm * 72 / 25.4 / (self::BODY_FONT_SIZE_PT * self::BODY_AVERAGE_CHAR_WIDTH_EM)));
+        $lines = 0;
+        foreach (preg_split('/\R/u', $text) ?: [''] as $line) {
+            $lines += max(1, (int) ceil(mb_strwidth($line, 'UTF-8') / $charactersPerLine));
+        }
+
+        return $lines;
+    }
+
+    private function captionHeightMm(string $caption, float $widthMm): float
+    {
+        if ($caption === '') {
+            return 0;
+        }
+
+        $caption = preg_replace('#<br\s*/?>#i', "\n", $caption) ?? $caption;
+        $text = html_entity_decode(strip_tags($caption), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $lineWidth = max(1, (int) floor($widthMm * 72 / 25.4 / (self::CAPTION_FONT_PT * self::CAPTION_AVERAGE_CHAR_WIDTH_EM)));
+        $lines = 0;
+        foreach (preg_split('/\R/u', $text) ?: [''] as $line) {
+            $lines += max(1, (int) ceil(mb_strwidth($line, 'UTF-8') / $lineWidth));
+        }
+
+        return $this->ptToMm($lines * self::CAPTION_FONT_PT * self::CAPTION_LINE_HEIGHT);
+    }
+
+    private function ptToMm(float $points): float
+    {
+        return $points * 25.4 / 72;
+    }
+
+    private function mmToPt(float $millimeters): float
+    {
+        return $millimeters * 72 / 25.4;
     }
 
     /** @param list<array<string, mixed>> $content */
@@ -234,9 +376,13 @@ class PdfDocumentRenderer
             $text = e($inline['text']);
             foreach ($inline['marks'] ?? [] as $mark) {
                 $tag = match ($mark['type']) {
-                    'bold' => 'b', 'italic' => 'i', 'underline' => 'u', 'code' => 'code', 'highlight' => 'mark', 'link' => 'a',
+                    'bold' => 'b', 'italic' => 'i', 'underline' => 'u', 'code' => 'code', 'highlight' => 'mark', 'link' => 'a', 'fontFamily' => 'span',
                 };
-                $attributes = $tag === 'a' ? ' href="'.e($mark['attrs']['href']).'" rel="noopener noreferrer"' : '';
+                $attributes = match ($mark['type']) {
+                    'link' => ' href="'.e($mark['attrs']['href']).'" rel="noopener noreferrer"',
+                    'fontFamily' => ' data-font-family="'.e($mark['attrs']['fontFamily']).'"',
+                    default => '',
+                };
                 $text = '<'.$tag.$attributes.'>'.$text.'</'.$tag.'>';
             }
             $html .= $text;

@@ -14,7 +14,9 @@ class EditorDataSanitizer
 {
     private const ALLOWED_TYPES = ['paragraph', 'header', 'list', 'table', 'image', 'delimiter'];
 
-    private const INLINE_TAGS = '<b><i><u><strong><em><mark><code><br><a>';
+    private const FONT_FAMILIES = ['Arial', 'Calibri', 'Times New Roman', 'Aptos', 'Georgia'];
+
+    private const INLINE_TAGS = '<b><i><u><strong><em><mark><code><br><a><span>';
 
     /**
      * @param  array<string, mixed>  $data
@@ -257,7 +259,7 @@ class EditorDataSanitizer
                 $text['marks'] = [];
                 foreach ($inline['marks'] as $m => $mark) {
                     $markPath = "$inlinePath.marks.$m";
-                    if (! is_array($mark) || ! in_array($mark['type'] ?? null, ['bold', 'italic', 'underline', 'code', 'highlight', 'link'], true)) {
+                    if (! is_array($mark) || ! in_array($mark['type'] ?? null, ['bold', 'italic', 'underline', 'code', 'highlight', 'link', 'fontFamily'], true)) {
                         $this->fail($markPath, 'Format teks sel tidak didukung.');
                     }
                     if ($mark['type'] === 'link') {
@@ -269,6 +271,12 @@ class EditorDataSanitizer
                             $this->fail("$markPath.attrs.href", 'Alamat tautan tidak aman.');
                         }
                         $text['marks'][] = ['type' => 'link', 'attrs' => ['href' => $href]];
+                    } elseif ($mark['type'] === 'fontFamily') {
+                        if (count($mark) !== 2 || ! is_array($mark['attrs'] ?? null) || count($mark['attrs']) !== 1 || ! is_string($mark['attrs']['fontFamily'] ?? null)
+                            || ! in_array($mark['attrs']['fontFamily'], self::FONT_FAMILIES, true)) {
+                            $this->fail($markPath, 'Jenis font tidak didukung.');
+                        }
+                        $text['marks'][] = ['type' => 'fontFamily', 'attrs' => ['fontFamily' => $mark['attrs']['fontFamily']]];
                     } else {
                         if (count($mark) !== 1) {
                             $this->fail($markPath, 'Atribut format teks tidak didukung.');
@@ -312,12 +320,24 @@ class EditorDataSanitizer
         if (! is_string($value) || mb_strlen($value) > config('documents.editor.max_text_length')) {
             $this->fail($path, 'Teks tidak valid atau terlalu panjang.');
         }
-        if (preg_match('/<\/?(?:s|del|strike|sub|sup|span|font)\b/i', $value)) {
+        if (preg_match('/<\/?(?:s|del|strike|sub|sup|font)\b/i', $value)) {
             $this->fail($path, 'Format teks ini belum didukung pada PDF.');
         }
 
         $text = strip_tags($value, self::INLINE_TAGS);
         $text = preg_replace('/<(b|i|u|strong|em|mark|code|br)\b[^>]*>/i', '<$1>', $text) ?? '';
+        $text = preg_replace_callback('/<span\b([^>]*)>/i', function (array $match) use ($path): string {
+            if (! preg_match('/^\s*data-font-family\s*=\s*(?:"([^"]*)"|\'([^\']*)\')\s*$/i', $match[1], $attribute)) {
+                $this->fail($path, 'Jenis font tidak didukung.');
+            }
+            $fontFamily = $attribute[1] !== '' ? $attribute[1] : $attribute[2];
+            if (! in_array($fontFamily, self::FONT_FAMILIES, true)) {
+                $this->fail($path, 'Jenis font tidak didukung.');
+            }
+
+            return '<span data-font-family="'.e($fontFamily).'">';
+        }, $text) ?? '';
+        $text = preg_replace('/<\/span\s*>/i', '</span>', $text) ?? '';
 
         return preg_replace_callback('/<a\b([^>]*)>/i', function (array $match): string {
             if (preg_match('/href\s*=\s*"([^"]*)"/i', $match[1], $href) || preg_match("/href\\s*=\\s*'([^']*)'/i", $match[1], $href)) {
