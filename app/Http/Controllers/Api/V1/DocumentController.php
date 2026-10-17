@@ -22,6 +22,9 @@ class DocumentController extends Controller
             $request->user(),
             $request->validated('status'),
             (int) $request->validated('per_page', 15),
+            $request->validated('q'),
+            $request->validated('category_guid'),
+            $request->boolean('uncategorized'),
         );
 
         return DocumentResource::collection($page)

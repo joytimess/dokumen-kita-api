@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
-#[Fillable(['owner_guid', 'public_reference', 'title', 'status'])]
+#[Fillable(['owner_guid', 'category_guid', 'public_reference', 'title', 'status'])]
 class Document extends Model
 {
     /** @use HasFactory<DocumentFactory> */
@@ -32,6 +32,12 @@ class Document extends Model
     public function owner(): BelongsTo
     {
         return $this->belongsTo(User::class, 'owner_guid', 'guid');
+    }
+
+    /** @return BelongsTo<DocumentCategory, $this> */
+    public function category(): BelongsTo
+    {
+        return $this->belongsTo(DocumentCategory::class, 'category_guid', 'guid');
     }
 
     /**

@@ -6,10 +6,12 @@ use App\Http\Controllers\Api\V1\AssignmentRevisionController;
 use App\Http\Controllers\Api\V1\AssignmentSignatureController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\DocumentActivityController;
+use App\Http\Controllers\Api\V1\DocumentCategoryController;
 use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\DocumentImportController;
 use App\Http\Controllers\Api\V1\DocumentPdfController;
 use App\Http\Controllers\Api\V1\DocumentVersionController;
+use App\Http\Controllers\Api\V1\EmailChangeController;
 use App\Http\Controllers\Api\V1\EmailVerificationController;
 use App\Http\Controllers\Api\V1\GoogleAuthController;
 use App\Http\Controllers\Api\V1\InvitationController;
@@ -17,6 +19,7 @@ use App\Http\Controllers\Api\V1\MeController;
 use App\Http\Controllers\Api\V1\PasswordResetController;
 use App\Http\Controllers\Api\V1\ReadConfirmationController;
 use App\Http\Controllers\Api\V1\SignatureAssetController;
+use App\Http\Controllers\Api\V1\SigningHistoryController;
 use App\Http\Controllers\Api\V1\UserNotificationController;
 use App\Http\Controllers\Api\V1\VersionConversionController;
 use App\Http\Controllers\Api\V1\VersionDecorationController;
@@ -49,11 +52,22 @@ Route::prefix('v1')->group(function (): void {
         Route::get('email/verify/{userGuid}/{hash}', [EmailVerificationController::class, 'verify'])
             ->middleware(['signed', 'throttle:6,1'])
             ->name('verification.verify');
+        Route::get('email/change/{requestGuid}', [EmailChangeController::class, 'verify'])
+            ->middleware(['signed', 'throttle:6,1'])
+            ->name('auth.email-change.verify');
         Route::post('email/resend', [EmailVerificationController::class, 'resend'])->middleware(['auth:sanctum', 'throttle:6,1']);
     });
 
     Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('me', [MeController::class, 'show']);
+        Route::patch('me/profile', [MeController::class, 'updateProfile']);
+        Route::get('me/photo', [MeController::class, 'photo'])->name('me.photo');
+        Route::post('me/photo', [MeController::class, 'storePhoto'])->middleware('throttle:uploads');
+        Route::delete('me/photo', [MeController::class, 'deletePhoto']);
+        Route::post('me/email-change', [MeController::class, 'requestEmailChange'])->middleware('throttle:6,1');
+        Route::post('me/password', [MeController::class, 'changePassword']);
+        Route::get('me/history', [SigningHistoryController::class, 'index'])->name('me.history.index');
+        Route::get('me/history/{event}', [SigningHistoryController::class, 'show'])->name('me.history.show');
 
         Route::get('notifications', [UserNotificationController::class, 'index']);
         Route::patch('notifications/{notification}/read', [UserNotificationController::class, 'read']);
@@ -61,11 +75,22 @@ Route::prefix('v1')->group(function (): void {
         Route::prefix('documents')->group(function (): void {
             Route::get('/', [DocumentController::class, 'index']);
             Route::post('/', [DocumentController::class, 'store']);
+            Route::patch('categories', [DocumentCategoryController::class, 'bulkAssign']);
+            Route::patch('{document}/category', [DocumentCategoryController::class, 'assign']);
             Route::get('{document}', [DocumentController::class, 'show']);
             Route::get('{document}/audit', [DocumentActivityController::class, 'audit']);
             Route::get('{document}/versions', [DocumentActivityController::class, 'versions']);
             Route::get('{document}/emails', [DocumentActivityController::class, 'emails']);
             Route::post('{document}/imports', [DocumentImportController::class, 'store'])->middleware('throttle:uploads');
+        });
+
+        Route::prefix('categories')->group(function (): void {
+            Route::get('/', [DocumentCategoryController::class, 'index']);
+            Route::post('/', [DocumentCategoryController::class, 'store']);
+            Route::get('{category}', [DocumentCategoryController::class, 'show']);
+            Route::put('{category}', [DocumentCategoryController::class, 'update']);
+            Route::delete('{category}', [DocumentCategoryController::class, 'destroy']);
+            Route::get('{category}/documents', [DocumentCategoryController::class, 'documents']);
         });
 
         Route::prefix('versions')->group(function (): void {

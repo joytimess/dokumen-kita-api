@@ -33,6 +33,17 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->hasMany(AuthIdentity::class, 'user_guid', 'guid');
     }
 
+    /** @return HasMany<DocumentCategory, $this> */
+    public function documentCategories(): HasMany
+    {
+        return $this->hasMany(DocumentCategory::class, 'owner_guid', 'guid');
+    }
+
+    public function hasGoogleIdentity(): bool
+    {
+        return $this->identities()->where('provider', 'google')->exists();
+    }
+
     /**
      * Get the attributes that should be cast.
      *

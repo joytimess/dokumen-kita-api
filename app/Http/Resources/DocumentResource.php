@@ -21,6 +21,8 @@ class DocumentResource extends ApiResource
             'title' => $this->title,
             'status' => $this->status,
             'owner_guid' => $this->owner_guid,
+            'category_guid' => $this->category_guid,
+            'category' => new DocumentCategoryResource($this->whenLoaded('category')),
             'current_version' => new DocumentVersionResource($this->whenLoaded('latestVersion')),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,

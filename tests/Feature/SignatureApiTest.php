@@ -71,6 +71,14 @@ class SignatureApiTest extends TestCase
         $this->assertSame(2, $assignment->placeholders()->count());
         $this->assertSame(VersionStatus::InProgress, $version->fresh()->status);
         $this->assertSame(1, AuditEvent::where('action', 'assignment.signed')->count());
+        $this->assertSame(
+            ['name' => $first->name, 'email' => $first->email],
+            AuditEvent::where('action', 'assignment.signed')->firstOrFail()->metadata_json['actor_snapshot'],
+        );
+        $this->assertSame(
+            ['name' => $first->name, 'email' => $first->email],
+            AuditEvent::where('action', 'assignment.signed')->firstOrFail()->metadata_json['actor_snapshot'],
+        );
         $this->assertSame(1, AuditEvent::where('action', 'assignment.activated')->count());
         $this->assertDatabaseHas('user_notifications', ['user_guid' => $version->document->owner_guid, 'event_type' => 'assignment.signed', 'assignment_guid' => $assignment->guid]);
         $this->assertDatabaseHas('user_notifications', ['user_guid' => $second->guid, 'event_type' => 'assignment.ready', 'assignment_guid' => $next->guid]);

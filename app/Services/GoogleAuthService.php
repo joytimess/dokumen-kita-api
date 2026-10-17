@@ -42,9 +42,13 @@ class GoogleAuthService
 
             if ($user === null) {
                 $user = new User(['name' => $profile->getName() ?: $email, 'email' => $email]);
-                $user->forceFill(['email_verified_at' => now()])->save();
+                $user->forceFill(['email_verified_at' => now(), 'google_photo_url' => $profile->getAvatar()])->save();
             } elseif (! $user->hasVerifiedEmail()) {
                 $user->forceFill(['password' => null, 'remember_token' => Str::random(60), 'email_verified_at' => now()])->save();
+            }
+
+            if (blank($user->profile_photo_path) && blank($user->google_photo_url) && filled($profile->getAvatar())) {
+                $user->forceFill(['google_photo_url' => $profile->getAvatar()])->save();
             }
 
             $user->identities()->create([

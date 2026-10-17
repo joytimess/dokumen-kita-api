@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\VersionStatus;
+use App\Models\AuditEvent;
 use App\Models\EmailNotification;
 use App\Models\ReadConfirmation;
 use App\Models\User;
@@ -55,6 +56,14 @@ class RevisionWorkflowTest extends TestCase
         $this->assertTrue($draft->assignments()->firstOrFail()->placeholders()->firstOrFail()->needs_review);
         $this->assertSame(0, $secondAssignment->invitationLinks()->whereNull('revoked_at')->count());
         $this->assertSame(1, EmailNotification::where('notification_type', 'revision_requested')->count());
+        $this->assertSame(
+            ['name' => $second->name, 'email' => $second->email],
+            AuditEvent::where('action', 'version.revision_requested')->firstOrFail()->metadata_json['actor_snapshot'],
+        );
+        $this->assertSame(
+            ['name' => $second->name, 'email' => $second->email],
+            AuditEvent::where('action', 'version.revision_requested')->firstOrFail()->metadata_json['actor_snapshot'],
+        );
         $this->assertDatabaseHas('user_notifications', ['user_guid' => $owner->guid, 'event_type' => 'version.revision_requested', 'version_guid' => $version->guid]);
         $this->assertSame(1, $secondAssignment->response()->count());
 

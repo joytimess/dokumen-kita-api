@@ -16,6 +16,10 @@ class AuditRecorder
      */
     public function record(string $action, Document $document, ?DocumentVersion $version, ?User $actor, array $metadata = []): AuditEvent
     {
+        if ($actor !== null && in_array($action, ['assignment.signed', 'version.revision_requested'], true)) {
+            $metadata['actor_snapshot'] = ['name' => $actor->name, 'email' => $actor->email];
+        }
+
         return AuditEvent::create([
             'document_guid' => $document->guid,
             'version_guid' => $version?->guid,

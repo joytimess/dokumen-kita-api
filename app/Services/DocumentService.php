@@ -6,6 +6,7 @@ use App\Enums\PreviewStatus;
 use App\Enums\VersionStatus;
 use App\Exceptions\ApiException;
 use App\Models\Document;
+use App\Models\DocumentCategory;
 use App\Models\DocumentVersion;
 use App\Models\SignaturePlaceholder;
 use App\Models\User;
@@ -57,12 +58,22 @@ class DocumentService
     /**
      * @return LengthAwarePaginator<int, Document>
      */
-    public function paginateForOwner(User $owner, ?string $status, int $perPage): LengthAwarePaginator
+    public function paginateForOwner(User $owner, ?string $status, int $perPage, ?string $search = null, ?string $categoryGuid = null, bool $uncategorized = false): LengthAwarePaginator
     {
+        if ($categoryGuid !== null && ! DocumentCategory::where('owner_guid', $owner->guid)->where('guid', $categoryGuid)->exists()) {
+            abort(404);
+        }
+
         return Document::query()
             ->where('owner_guid', $owner->guid)
             ->when($status, fn ($query) => $query->where('status', $status))
-            ->with('latestVersion.document')
+            ->when($search !== null && $search !== '', function ($query) use ($search): void {
+                $pattern = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower($search)).'%';
+                $query->whereRaw("LOWER(title) LIKE ? ESCAPE '!'", [$pattern]);
+            })
+            ->when($categoryGuid !== null, fn ($query) => $query->where('category_guid', $categoryGuid))
+            ->when($uncategorized, fn ($query) => $query->whereNull('category_guid'))
+            ->with('latestVersion.document', 'category')
             ->orderByDesc('id')
             ->paginate($perPage);
     }

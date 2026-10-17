@@ -23,9 +23,9 @@ class GoogleAuthTest extends TestCase
 
     private const CALLBACK = '/api/v1/auth/google/callback';
 
-    private function fakeGoogleProfile(string $id, string $email, bool $emailVerified = true, string $name = 'Budi'): void
+    private function fakeGoogleProfile(string $id, string $email, bool $emailVerified = true, string $name = 'Budi', ?string $avatar = null): void
     {
-        $profile = (new SocialiteUser)->map(['id' => $id, 'name' => $name, 'email' => $email]);
+        $profile = (new SocialiteUser)->map(['id' => $id, 'name' => $name, 'email' => $email, 'avatar' => $avatar]);
         $profile->user = ['sub' => $id, 'email' => $email, 'email_verified' => $emailVerified];
 
         $provider = Mockery::mock(Provider::class);
@@ -53,6 +53,21 @@ class GoogleAuthTest extends TestCase
         $this->assertNull($user->password);
         $this->assertDatabaseHas('auth_identities', ['user_guid' => $user->guid, 'provider' => 'google', 'provider_user_id' => 'g-1']);
         $this->assertAuthenticatedAs($user);
+    }
+
+    public function test_google_photo_is_imported_once_and_does_not_replace_an_app_photo(): void
+    {
+        $this->fakeGoogleProfile('g-photo', 'photo@example.test', avatar: 'https://google.example/avatar.jpg');
+        $this->get(self::CALLBACK)->assertRedirect();
+        $user = User::firstWhere('email', 'photo@example.test');
+        $this->assertSame('https://google.example/avatar.jpg', $user->google_photo_url);
+
+        $user->forceFill(['profile_photo_path' => 'profile-photos/custom.png'])->save();
+        $this->fakeGoogleProfile('g-photo', 'photo@example.test', name: 'Changed', avatar: 'https://google.example/new-avatar.jpg');
+        $this->get(self::CALLBACK)->assertRedirect();
+        $this->assertSame('profile-photos/custom.png', $user->fresh()->profile_photo_path);
+        $this->assertSame('https://google.example/avatar.jpg', $user->fresh()->google_photo_url);
+        $this->assertSame('Budi', $user->fresh()->name);
     }
 
     public function test_google_http_requests_use_bounded_timeouts_and_ipv4(): void
