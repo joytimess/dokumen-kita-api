@@ -73,7 +73,7 @@ class EditorDataSanitizer
             'paragraph' => ['text'],
             'header' => ['text', 'level'],
             'list' => ['style', 'items'],
-            'table' => ['withHeadings', 'showBorders', 'content'],
+            'table' => ['withHeadings', 'showBorders', 'rowMinHeights', 'content'],
             'image' => ['file', 'caption'],
             'delimiter' => [],
         };
@@ -160,11 +160,14 @@ class EditorDataSanitizer
 
         $rows = $data['content'] ?? null;
 
-        if (! is_array($rows) || ! array_is_list($rows) || count($rows) > config('documents.editor.max_table_rows')) {
+        if (! is_array($rows) || ! array_is_list($rows) || $rows === [] || count($rows) > config('documents.editor.max_table_rows')) {
             $this->fail("$path.data.content", 'Tabel tidak valid atau terlalu besar.');
         }
 
         $clean = [];
+        $grid = array_fill(0, count($rows), []);
+        $columnWidths = [];
+        $columnCount = 0;
 
         foreach (array_values($rows) as $r => $row) {
             if (! is_array($row) || ! array_is_list($row) || count($row) > config('documents.editor.max_table_columns')) {
@@ -174,30 +177,166 @@ class EditorDataSanitizer
             $cleanRow = [];
             foreach (array_values($row) as $column => $cell) {
                 $cellPath = "$path.data.content.$r.$column";
+                $logicalColumn = 0;
+                while (isset($grid[$r][$logicalColumn])) {
+                    $logicalColumn++;
+                }
+                $attrs = [];
+                $cellContent = $cell;
+                $structuredCell = false;
                 if (is_array($cell)) {
                     if (! array_is_list($cell)) {
-                        $this->fail($cellPath, 'Penggabungan sel tabel belum didukung.');
+                        $structuredCell = true;
+                        if (! array_key_exists('attrs', $cell) && ! array_key_exists('content', $cell)) {
+                            $this->fail($cellPath, 'Sel tabel kompleks belum didukung; gunakan satu teks tanpa gambar atau gabungan sel.');
+                        }
+                        foreach (array_keys($cell) as $key) {
+                            if (! in_array($key, ['attrs', 'content'], true)) {
+                                $this->fail("$cellPath.$key", 'Atribut struktur sel tabel tidak didukung.');
+                            }
+                        }
+                        if (! is_array($cell['attrs'] ?? null) || ! is_array($cell['content'] ?? null) || ! array_is_list($cell['content'])) {
+                            $this->fail($cellPath, 'Struktur sel tabel tidak valid.');
+                        }
+                        $attrs = $this->sanitizeTableCellAttributes($cell['attrs'], $cellPath);
+                        $cellContent = $cell['content'];
                     }
-                    if (count($cell) > config('documents.editor.max_blocks')) {
+                    if (! is_array($cellContent) || ! array_is_list($cellContent) || count($cellContent) > config('documents.editor.max_blocks')) {
                         $this->fail($cellPath, 'Jumlah blok sel melebihi batas.');
                     }
-                    $cleanRow[] = array_map(fn (mixed $node, int $i): array => $this->sanitizeCellNode($node, "$cellPath.$i"), $cell, array_keys($cell));
-
-                    continue;
-                }
-                if (is_string($cell) && preg_match('/<\/?(?:p|div|img|table)\b/i', $cell)) {
+                    $contentPath = $structuredCell ? "$cellPath.content" : $cellPath;
+                    $cellContent = array_map(fn (mixed $node, int $i): array => $this->sanitizeCellNode($node, "$contentPath.$i"), $cellContent, array_keys($cellContent));
+                } elseif (is_string($cell) && preg_match('/<\/?(?:p|div|img|table)\b/i', $cell)) {
                     $this->fail($cellPath, 'HTML blok atau gambar mentah tidak didukung di sel tabel.');
+                } else {
+                    $cellContent = $this->text($cell, $cellPath);
                 }
-                $cleanRow[] = $this->text($cell, $cellPath);
+
+                $colspan = $attrs['colspan'] ?? 1;
+                $rowspan = $attrs['rowspan'] ?? 1;
+                if ($logicalColumn + $colspan > config('documents.editor.max_table_columns') || $r + $rowspan > count($rows)) {
+                    $this->fail("$cellPath.attrs", 'Gabungan sel tabel melewati batas baris atau kolom.');
+                }
+                for ($rowOffset = 0; $rowOffset < $rowspan; $rowOffset++) {
+                    for ($columnOffset = 0; $columnOffset < $colspan; $columnOffset++) {
+                        $targetRow = $r + $rowOffset;
+                        $targetColumn = $logicalColumn + $columnOffset;
+                        if (isset($grid[$targetRow][$targetColumn])) {
+                            $this->fail("$cellPath.attrs", 'Gabungan sel tabel bertumpang tindih.');
+                        }
+                        $grid[$targetRow][$targetColumn] = true;
+                    }
+                }
+                if (isset($attrs['colwidth'])) {
+                    foreach ($attrs['colwidth'] as $offset => $width) {
+                        $widthColumn = $logicalColumn + $offset;
+                        if (isset($columnWidths[$widthColumn]) && $columnWidths[$widthColumn] !== $width) {
+                            $this->fail("$cellPath.attrs.colwidth", 'Lebar sel pada kolom yang sama harus konsisten.');
+                        }
+                        $columnWidths[$widthColumn] = $width;
+                    }
+                }
+                $columnCount = max($columnCount, $logicalColumn + $colspan);
+                $cleanRow[] = $structuredCell
+                    ? ['attrs' => $attrs, 'content' => $cellContent]
+                    : $cellContent;
             }
             $clean[] = $cleanRow;
+        }
+
+        foreach ($grid as $row) {
+            for ($column = 0; $column < $columnCount; $column++) {
+                if (! isset($row[$column])) {
+                    $this->fail("$path.data.content", 'Struktur gabungan sel tabel harus mengisi seluruh baris.');
+                }
+            }
+        }
+        if ($columnCount < 1) {
+            $this->fail("$path.data.content", 'Tabel harus memiliki setidaknya satu sel.');
+        }
+
+        $rowMinHeights = null;
+        if (array_key_exists('rowMinHeights', $data)) {
+            if (! is_array($data['rowMinHeights']) || ! array_is_list($data['rowMinHeights']) || count($data['rowMinHeights']) !== count($rows)) {
+                $this->fail("$path.data.rowMinHeights", 'Tinggi minimum harus tersedia untuk setiap baris tabel.');
+            }
+            $rowMinHeights = [];
+            foreach ($data['rowMinHeights'] as $row => $height) {
+                if ($height !== null && (! is_int($height) || $height < 1 || $height > 1200)) {
+                    $this->fail("$path.data.rowMinHeights.$row", 'Tinggi minimum baris harus antara 1 dan 1200 px.');
+                }
+                $rowMinHeights[] = $height;
+            }
         }
 
         return [
             'withHeadings' => (bool) ($data['withHeadings'] ?? false),
             'showBorders' => $data['showBorders'] ?? true,
+            ...($rowMinHeights === null ? [] : ['rowMinHeights' => $rowMinHeights]),
             'content' => $clean,
         ];
+    }
+
+    /** @return array<string, mixed> */
+    private function sanitizeTableCellAttributes(array $attrs, string $path): array
+    {
+        $allowed = ['colspan', 'rowspan', 'colwidth', 'align', 'verticalAlign', 'backgroundColor', 'border'];
+        foreach (array_keys($attrs) as $key) {
+            if (! in_array($key, $allowed, true)) {
+                $this->fail("$path.attrs.$key", 'Gaya sel tabel tidak didukung.');
+            }
+        }
+        $colspan = $attrs['colspan'] ?? 1;
+        $rowspan = $attrs['rowspan'] ?? 1;
+        if (! is_int($colspan) || $colspan < 1 || $colspan > config('documents.editor.max_table_columns')
+            || ! is_int($rowspan) || $rowspan < 1 || $rowspan > config('documents.editor.max_table_rows')) {
+            $this->fail("$path.attrs", 'Ukuran sel tabel tidak valid.');
+        }
+        $clean = [];
+        if ($colspan > 1) {
+            $clean['colspan'] = $colspan;
+        }
+        if ($rowspan > 1) {
+            $clean['rowspan'] = $rowspan;
+        }
+        if (array_key_exists('colwidth', $attrs) && $attrs['colwidth'] !== null) {
+            $widths = $attrs['colwidth'];
+            if (! is_array($widths) || ! array_is_list($widths) || count($widths) !== $colspan) {
+                $this->fail("$path.attrs.colwidth", 'Lebar kolom harus berupa daftar sesuai jumlah kolom sel.');
+            }
+            foreach ($widths as $width) {
+                if (! is_int($width) || $width < 32 || $width > 2000) {
+                    $this->fail("$path.attrs.colwidth", 'Lebar kolom harus antara 32 dan 2000 px.');
+                }
+            }
+            $clean['colwidth'] = $widths;
+        }
+        if (array_key_exists('align', $attrs) && $attrs['align'] !== null) {
+            if (! in_array($attrs['align'], ['left', 'center', 'right', 'justify'], true)) {
+                $this->fail("$path.attrs.align", 'Perataan sel tabel tidak didukung.');
+            }
+            $clean['align'] = $attrs['align'];
+        }
+        if (array_key_exists('verticalAlign', $attrs) && $attrs['verticalAlign'] !== 'top') {
+            if (! in_array($attrs['verticalAlign'], ['middle', 'bottom'], true)) {
+                $this->fail("$path.attrs.verticalAlign", 'Perataan vertikal sel tabel tidak didukung.');
+            }
+            $clean['verticalAlign'] = $attrs['verticalAlign'];
+        }
+        if (array_key_exists('backgroundColor', $attrs) && $attrs['backgroundColor'] !== null) {
+            if (! in_array($attrs['backgroundColor'], ['gray', 'blue', 'green', 'yellow', 'orange', 'red', 'purple'], true)) {
+                $this->fail("$path.attrs.backgroundColor", 'Warna sel tabel tidak didukung.');
+            }
+            $clean['backgroundColor'] = $attrs['backgroundColor'];
+        }
+        if (array_key_exists('border', $attrs) && $attrs['border'] !== null) {
+            if (! is_bool($attrs['border'])) {
+                $this->fail("$path.attrs.border", 'Pilihan garis sel harus berupa boolean.');
+            }
+            $clean['border'] = $attrs['border'];
+        }
+
+        return $clean;
     }
 
     /** @return array<string, mixed> */

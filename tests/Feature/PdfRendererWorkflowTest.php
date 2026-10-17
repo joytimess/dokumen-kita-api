@@ -189,6 +189,40 @@ class PdfRendererWorkflowTest extends TestCase
         $this->assertLessThan(substr_count($borderedCommands, " S\n"), substr_count($mixedCommands, " S\n"));
     }
 
+    public function test_editor_preview_renders_merged_cells_widths_and_cell_styles(): void
+    {
+        $owner = User::factory()->create();
+        $paragraph = fn (string $text): array => ['type' => 'paragraph', 'content' => [['type' => 'text', 'text' => $text]]];
+        $version = $this->draft($owner, ['editor_data_json' => ['blocks' => [[
+            'type' => 'table', 'data' => [
+                'withHeadings' => true,
+                'showBorders' => true,
+                'rowMinHeights' => [80, 60],
+                'content' => [
+                    [
+                        ['attrs' => ['colspan' => 2, 'colwidth' => [120, 90], 'align' => 'center', 'verticalAlign' => 'middle', 'backgroundColor' => 'blue', 'border' => false], 'content' => [$paragraph('Gabungan horizontal')]],
+                        ['attrs' => ['rowspan' => 2, 'colwidth' => [72]], 'content' => [$paragraph('Gabungan vertikal')]],
+                        ['attrs' => ['colwidth' => [80]], 'content' => [$paragraph('Kolom empat')]],
+                    ],
+                    [
+                        ['attrs' => ['colwidth' => [120]], 'content' => [$paragraph(str_repeat('Teks panjang tetap terbaca. ', 12))]],
+                        ['attrs' => ['colwidth' => [90]], 'content' => [$paragraph('Isi kedua')]],
+                        ['attrs' => ['colwidth' => [80]], 'content' => [$paragraph('Isi terakhir')]],
+                    ],
+                ],
+            ],
+        ]]]]);
+
+        $preview = $this->app->make(PdfDocumentRenderer::class)->preview($version);
+        $document = (new Parser)->parseContent($preview['bytes']);
+        $text = preg_replace('/\s+/', ' ', $document->getText());
+
+        $this->assertSame(1, $preview['pages']);
+        foreach (['Gabungan horizontal', 'Gabungan vertikal', 'Kolom empat', 'Teks panjang tetap terbaca.', 'Isi terakhir'] as $expected) {
+            $this->assertStringContainsString($expected, $text);
+        }
+    }
+
     public function test_preview_and_final_pdf_keep_the_delimiter_between_paragraphs(): void
     {
         Storage::fake('local');

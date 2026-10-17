@@ -262,6 +262,50 @@ class DocumentApiTest extends TestCase
         $this->assertSame($tables['blocks'][0]['data']['showBorders'], DocumentVersion::where('guid', $versionGuid)->firstOrFail()->editor_data_json['blocks'][0]['data']['showBorders']);
     }
 
+    public function test_merged_table_cells_and_supported_styles_round_trip_through_the_api(): void
+    {
+        $owner = User::factory()->create();
+        $version = $this->ownedDraft($owner);
+        $paragraph = fn (string $text): array => ['type' => 'paragraph', 'content' => [['type' => 'text', 'text' => $text]]];
+        $table = ['blocks' => [['type' => 'table', 'data' => [
+            'withHeadings' => true,
+            'rowMinHeights' => [null, 44],
+            'content' => [
+                [
+                    ['attrs' => ['colspan' => 2, 'colwidth' => [120, 90], 'align' => 'center', 'verticalAlign' => 'middle', 'backgroundColor' => 'blue', 'border' => false], 'content' => [$paragraph('Gabungan')]],
+                    ['attrs' => ['rowspan' => 2, 'colwidth' => [72]], 'content' => [$paragraph('Vertikal')]],
+                    ['attrs' => ['colwidth' => [80]], 'content' => [$paragraph('Kolom')]],
+                ],
+                [
+                    ['attrs' => ['colwidth' => [120]], 'content' => [$paragraph('Baris kedua')]],
+                    ['attrs' => ['colwidth' => [90]], 'content' => [$paragraph('Isi')]],
+                    ['attrs' => ['colwidth' => [80]], 'content' => [$paragraph('Ujung')]],
+                ],
+            ],
+        ]]]];
+
+        $this->actingAs($owner)->patchJson("/api/v1/versions/{$version->guid}", [
+            'editor_revision' => 1, 'editor_data' => $table,
+        ])->assertOk()
+            ->assertJsonPath('data.editor_data.blocks.0.data.content.0.0.attrs.colspan', 2)
+            ->assertJsonPath('data.editor_data.blocks.0.data.content.0.0.attrs.backgroundColor', 'blue')
+            ->assertJsonPath('data.editor_data.blocks.0.data.content.0.1.attrs.rowspan', 2)
+            ->assertJsonPath('data.editor_data.blocks.0.data.rowMinHeights.1', 44);
+
+        $this->getJson("/api/v1/versions/{$version->guid}")->assertOk()
+            ->assertJsonPath('data.editor_data.blocks.0.data.content.0.0.content.0.content.0.text', 'Gabungan')
+            ->assertJsonPath('data.editor_data.blocks.0.data.content.0.1.content.0.content.0.text', 'Vertikal')
+            ->assertJsonPath('data.editor_data.blocks.0.data.content.1.0.attrs.colwidth.0', 120);
+        $this->assertSame($table['blocks'][0]['data']['content'], $version->fresh()->editor_data_json['blocks'][0]['data']['content']);
+
+        $unsafe = $table;
+        $unsafe['blocks'][0]['data']['content'][0][0]['attrs']['backgroundColor'] = 'red;position:fixed';
+        $this->patchJson("/api/v1/versions/{$version->guid}", [
+            'editor_revision' => 2, 'editor_data' => $unsafe,
+        ])->assertUnprocessable()->assertJsonPath('error.code', 'VALIDATION_FAILED');
+        $this->assertSame(2, $version->fresh()->editor_revision);
+    }
+
     public function test_table_border_change_invalidates_preview_and_requires_current_revision(): void
     {
         $owner = User::factory()->create();
@@ -352,8 +396,13 @@ class DocumentApiTest extends TestCase
             ['type' => 'image', 'data' => ['file' => ['url' => 'http://169.254.169.254/latest']]],
         ]]])->assertUnprocessable()->assertJsonStructure(['error' => ['errors' => ['editor_data.blocks.0.data.file.url']]]);
 
+        $image = imagecreatetruecolor(1, 1);
+        ob_start();
+        imagepng($image);
+        $png = ob_get_clean();
+        imagedestroy($image);
         $this->actingAs($owner)->patchJson("/api/v1/versions/{$version->guid}", ['editor_revision' => 1, 'editor_data' => ['blocks' => [
-            ['type' => 'image', 'data' => ['file' => ['url' => 'data:image/png;base64,iVBORw0KGgo='], 'caption' => 'ok']],
+            ['type' => 'image', 'data' => ['file' => ['url' => 'data:image/png;base64,'.base64_encode($png)], 'caption' => 'ok']],
         ]]])->assertOk();
     }
 

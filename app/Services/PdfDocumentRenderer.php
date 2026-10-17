@@ -239,24 +239,103 @@ class PdfDocumentRenderer
     /** @param array<string, mixed> $data */
     private function tableHtml(array $data, float $contentWidthMm, float $contentHeightMm): string
     {
-        $columns = max([1, ...array_map('count', $data['content'])]);
-        $borderPt = ($data['showBorders'] ?? true) ? self::TABLE_BORDER_PT * 2 : 0;
-        $cellWidthMm = $contentWidthMm / $columns - $this->ptToMm(self::TABLE_CELL_PADDING_PT * 2 + $borderPt);
+        $grid = [];
+        $positions = [];
+        $widths = [];
+        $declaredWidths = [];
+        $hasColumnWidths = false;
+        $columns = 0;
+        foreach ($data['content'] as $rowIndex => $row) {
+            $column = 0;
+            foreach ($row as $cellIndex => $value) {
+                while (isset($grid[$rowIndex][$column])) {
+                    $column++;
+                }
+                $attrs = is_array($value) && array_key_exists('attrs', $value) ? $value['attrs'] : [];
+                $colspan = $attrs['colspan'] ?? 1;
+                $rowspan = $attrs['rowspan'] ?? 1;
+                $positions[$rowIndex][$cellIndex] = ['column' => $column, 'attrs' => $attrs];
+                for ($rowOffset = 0; $rowOffset < $rowspan; $rowOffset++) {
+                    for ($columnOffset = 0; $columnOffset < $colspan; $columnOffset++) {
+                        $grid[$rowIndex + $rowOffset][$column + $columnOffset] = true;
+                    }
+                }
+                foreach ($attrs['colwidth'] ?? [] as $offset => $width) {
+                    $hasColumnWidths = true;
+                    $widths[$column + $offset] = $width;
+                    $declaredWidths[] = $width;
+                }
+                $column += $colspan;
+                $columns = max($columns, $column);
+            }
+        }
+        $fallbackWidth = $declaredWidths === [] ? 1 : array_sum($declaredWidths) / count($declaredWidths);
+        for ($column = 0; $column < $columns; $column++) {
+            $widths[$column] ??= $fallbackWidth;
+        }
+        ksort($widths);
+        $totalWidth = array_sum($widths);
+        $widthsMm = array_map(fn (float|int $width): float => $contentWidthMm * $width / $totalWidth, $widths);
         $html = ($data['showBorders'] ?? true) ? '<table>' : '<table class="table-without-borders">';
-        $html .= '<colgroup>'.str_repeat('<col style="width:'.(100 / $columns).'%">', $columns).'</colgroup>';
-        foreach ($data['content'] as $index => $row) {
-            $cell = $data['withHeadings'] && $index === 0 ? 'th' : 'td';
+        $html .= '<colgroup>';
+        foreach ($widthsMm as $width) {
+            $html .= '<col width="'.round($width * 96 / 25.4).'">';
+        }
+        $html .= '</colgroup>';
+        if ($hasColumnWidths) {
+            $html .= '<tr>';
+            foreach ($widths as $width) {
+                $html .= '<td style="width:'.($width / $totalWidth * 100).'%;height:0;padding:0;border:0;font-size:0;line-height:0"></td>';
+            }
+            $html .= '</tr>';
+        }
+        $colors = [
+            'gray' => '#f1f5f9', 'blue' => '#dbeafe', 'green' => '#dcfce7', 'yellow' => '#fef3c7',
+            'orange' => '#ffedd5', 'red' => '#fee2e2', 'purple' => '#f3e8ff',
+        ];
+        foreach ($data['content'] as $rowIndex => $row) {
+            $rowHeight = $data['rowMinHeights'][$rowIndex] ?? null;
             $html .= '<tr>';
             $rowHeightPt = 0;
-            foreach ($row as $value) {
-                $html .= '<'.$cell.'>';
-                $cellHeightPt = 2 * self::TABLE_CELL_PADDING_PT + (($data['showBorders'] ?? true) ? 2 * self::TABLE_BORDER_PT : 0);
-                if (is_string($value)) {
-                    $html .= '<p>'.$value.'</p>';
-                    $cellHeightPt += $this->textLines($value, $cellWidthMm) * self::BODY_FONT_SIZE_PT * self::BODY_LINE_HEIGHT;
+            foreach ($row as $cellIndex => $value) {
+                $cell = $positions[$rowIndex][$cellIndex];
+                $attrs = $cell['attrs'];
+                $colspan = $attrs['colspan'] ?? 1;
+                $rowspan = $attrs['rowspan'] ?? 1;
+                $spanWidthMm = array_sum(array_slice($widthsMm, $cell['column'], $colspan));
+                $cellWidthMm = max(8, $spanWidthMm - $this->ptToMm(self::TABLE_CELL_PADDING_PT * 2 + self::TABLE_BORDER_PT * 2));
+                $tag = $data['withHeadings'] && $rowIndex === 0 ? 'th' : 'td';
+                $styles = [];
+                if (isset($attrs['align'])) {
+                    $styles[] = 'text-align:'.$attrs['align'];
+                }
+                if (isset($attrs['verticalAlign'])) {
+                    $styles[] = 'vertical-align:'.($attrs['verticalAlign'] === 'middle' ? 'middle' : 'bottom');
+                }
+                if (isset($attrs['backgroundColor'])) {
+                    $styles[] = 'background-color:'.$colors[$attrs['backgroundColor']];
+                }
+                $minimumCellHeight = array_sum(array_map(
+                    fn ($height): int => $height ?? 0,
+                    array_slice($data['rowMinHeights'] ?? [], $rowIndex, $rowspan),
+                ));
+                if ($minimumCellHeight > 0) {
+                    $styles[] = 'height:'.$minimumCellHeight.'px';
+                }
+                $showBorder = $attrs['border'] ?? ($data['showBorders'] ?? true);
+                if (array_key_exists('border', $attrs)) {
+                    $styles[] = $showBorder ? 'border:1px solid #777' : 'border:0 none transparent';
+                }
+                $html .= '<'.$tag.' width="'.round($spanWidthMm * 96 / 25.4).'"'.($colspan > 1 ? ' colspan="'.$colspan.'"' : '').($rowspan > 1 ? ' rowspan="'.$rowspan.'"' : '')
+                    .($styles === [] ? '' : ' style="'.implode(';', $styles).'"').'>';
+                $cellHeightPt = 2 * self::TABLE_CELL_PADDING_PT + ($showBorder ? 2 * self::TABLE_BORDER_PT : 0);
+                $cellContent = is_array($value) && array_key_exists('attrs', $value) ? $value['content'] : $value;
+                if (is_string($cellContent)) {
+                    $html .= '<p>'.$cellContent.'</p>';
+                    $cellHeightPt += $this->textLines($cellContent, $cellWidthMm) * self::BODY_FONT_SIZE_PT * self::BODY_LINE_HEIGHT;
                 } else {
-                    $lastNode = count($value) - 1;
-                    foreach ($value as $nodeIndex => $node) {
+                    $lastNode = count($cellContent) - 1;
+                    foreach ($cellContent as $nodeIndex => $node) {
                         if ($node['type'] === 'image') {
                             $image = $this->imageHtml($node, $cellWidthMm, self::CELL_IMAGE_MAX_HEIGHT_MM, $contentHeightMm, self::CELL_FIGURE_MARGIN_PT);
                             $html .= $image['html'];
@@ -270,10 +349,11 @@ class PdfDocumentRenderer
                         }
                     }
                 }
-                $html .= '</'.$cell.'>';
-                $rowHeightPt = max($rowHeightPt, $cellHeightPt);
+                $html .= '</'.$tag.'>';
+                $rowHeightPt = max($rowHeightPt, $cellHeightPt / $rowspan);
             }
             $html .= '</tr>';
+            $rowHeightPt = max($rowHeightPt, ($rowHeight ?? 0) * 0.75);
             if ($this->mmToPt($contentHeightMm - self::IMAGE_FIT_SAFETY_MM) < $rowHeightPt + 2 * self::TABLE_VERTICAL_MARGIN_PT) {
                 throw new ApiException(422, 'PREVIEW_RENDER_FAILED', 'Satu baris tabel terlalu tinggi untuk satu area halaman. Pendekkan isi baris lalu buat preview lagi.');
             }
