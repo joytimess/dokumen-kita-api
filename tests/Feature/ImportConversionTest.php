@@ -2,16 +2,18 @@
 
 namespace Tests\Feature;
 
+use App\Enums\SourceType;
+use App\Exceptions\ApiException;
 use App\Models\DocumentVersion;
 use App\Models\User;
-use App\Services\CloudVisionOcrClient;
 use App\Services\DocumentConversionService;
 use App\Services\DocumentPipelineService;
+use App\Services\OcrSpaceOcrClient;
 use App\Services\PdfDocumentRenderer;
+use App\Services\SourceDocumentConverter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
-use Mockery\MockInterface;
 use Smalot\PdfParser\Parser;
 use Tests\TestCase;
 use ZipArchive;
@@ -23,7 +25,8 @@ class ImportConversionTest extends TestCase
     public function test_pdf_import_becomes_editable_and_save_uses_latest_revision(): void
     {
         Storage::fake('local');
-        config(['documents.disk' => 'local']);
+        config(['documents.disk' => 'local', 'documents.ocr.max_pages' => 1, 'documents.ocr.max_bytes' => 1]);
+        Http::fake();
         $owner = User::factory()->create();
         $documentGuid = $this->actingAs($owner)->postJson('/api/v1/documents', ['title' => 'PDF editable'])
             ->assertCreated()->json('data.guid');
@@ -59,21 +62,17 @@ class ImportConversionTest extends TestCase
         $this->assertStringNotContainsString('First page editable', $renderedText);
         $this->get("/api/v1/versions/{$versionGuid}/source")->assertOk()->assertHeader('Content-Type', 'application/pdf');
         $this->actingAs(User::factory()->create())->get("/api/v1/versions/{$versionGuid}/source")->assertNotFound();
+        Http::assertNothingSent();
     }
 
-    public function test_scanned_pdf_import_uses_ocr_text_in_editor_blocks(): void
+    public function test_scanned_pdf_import_uses_ocr_text_without_importing_pdf_images(): void
     {
         Storage::fake('local');
-        config(['documents.disk' => 'local']);
-        $this->mock(CloudVisionOcrClient::class, function (MockInterface $mock): void {
-            $mock->shouldReceive('isConfigured')->once()->andReturn(true);
-            $mock->shouldReceive('annotate')->once()->withArgs(fn (string $bytes, array $pages): bool => $pages === [1, 2, 3])
-                ->andReturn([
-                    1 => ['words' => [['text' => 'OCR'], ['text' => 'page'], ['text' => 'one']]],
-                    2 => ['words' => [['text' => 'OCR'], ['text' => 'page'], ['text' => 'two']]],
-                    3 => ['words' => [['text' => 'OCR'], ['text' => 'page'], ['text' => 'three']]],
-                ]);
-        });
+        config(['documents.disk' => 'local', 'documents.ocr.enabled' => true, 'documents.ocr.api_key' => 'test-key']);
+        $pdf = $this->scannedPdf();
+        Http::fake(['https://api.ocr.space/parse/image' => Http::response($this->ocrSpaceResponse([
+            'OCR page one', '', 'OCR page three',
+        ]), 200)]);
 
         $owner = User::factory()->create();
         $created = $this->actingAs($owner)->postJson('/api/v1/documents', [
@@ -90,51 +89,151 @@ class ImportConversionTest extends TestCase
         $blocks = $result->json('data.editor_data.blocks');
         $this->assertSame(3, $result->json('data.conversion_page_count'));
         $texts = array_column(array_values(array_filter($blocks, fn (array $block): bool => $block['type'] === 'paragraph')), 'data');
-        $this->assertSame(['OCR page one', 'OCR page two', 'OCR page three'], array_column($texts, 'text'));
-        $this->assertContains('image', array_column($blocks, 'type'));
+        $this->assertSame(['OCR page one', 'OCR page three'], array_column($texts, 'text'));
+        $this->assertNotContains('image', array_column($blocks, 'type'));
         $this->assertContains('PDF_OCR_APPLIED', $result->json('data.conversion_warnings'));
+        $this->assertContains('PDF_OCR_PARTIAL', $result->json('data.conversion_warnings'));
+        Http::assertSentCount(1);
+        $request = Http::recorded()->first()[0];
+        $this->assertSame('https://api.ocr.space/parse/image', $request->url());
+        $this->assertTrue($request->hasHeader('apikey', 'test-key'));
+        $this->assertTrue($request->isMultipart());
+        $this->assertTrue($request->hasFile('file', $pdf, 'source.pdf'));
+        $fields = collect($request->data())->keyBy('name');
+        $this->assertSame('2', $fields['OCREngine']['contents']);
+        $this->assertSame('auto', $fields['language']['contents']);
+        $this->assertSame('false', $fields['isOverlayRequired']['contents']);
     }
 
-    public function test_cloud_vision_file_response_reads_nested_page_results(): void
+    public function test_mixed_pdf_falls_back_to_native_text_when_total_pdf_exceeds_ocr_page_limit(): void
     {
         Storage::fake('local');
-        $key = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_RSA, 'private_key_bits' => 2048]);
-        openssl_pkey_export($key, $privateKey);
-        Storage::disk('local')->put('testing/vision.json', json_encode([
-            'client_email' => 'ocr@example.test', 'private_key' => $privateKey,
-            'token_uri' => 'https://oauth2.googleapis.com/token',
-        ], JSON_THROW_ON_ERROR));
         config([
+            'documents.disk' => 'local',
+            'documents.processing.pdftotext_binary' => 'missing-pdftotext-binary',
+            'documents.ocr.max_pages' => 1,
+        ]);
+        Http::fake();
+        $owner = User::factory()->create();
+        $documentGuid = $this->actingAs($owner)->postJson('/api/v1/documents', ['title' => 'Mixed PDF'])
+            ->assertCreated()->json('data.guid');
+        $queued = $this->postJson("/api/v1/documents/{$documentGuid}/imports", [
+            'file' => UploadedFileFactory::content('mixed.pdf', $this->pdfWithBlankLastPage()),
+        ])->assertAccepted();
+
+        $this->app->make(DocumentConversionService::class)->convert(
+            $queued->json('data.guid'), $queued->json('data.conversion_generation'),
+        );
+
+        $result = $this->getJson('/api/v1/versions/'.$queued->json('data.guid'))
+            ->assertJsonPath('data.conversion_status', 'ready')
+            ->assertJsonPath('data.conversion_error_code', null);
+        $this->assertStringContainsString('First page editable', $result->json('data.editor_data.blocks.0.data.text'));
+        $this->assertContains('PDF_OCR_SKIPPED_LIMIT', $result->json('data.conversion_warnings'));
+        $this->assertNotContains('PDF_OCR_APPLIED', $result->json('data.conversion_warnings'));
+        Http::assertNothingSent();
+    }
+
+    public function test_mixed_pdf_falls_back_to_native_text_when_provider_quota_is_exhausted(): void
+    {
+        Storage::fake('local');
+        config([
+            'documents.disk' => 'local',
+            'documents.processing.pdftotext_binary' => 'missing-pdftotext-binary',
             'documents.ocr.enabled' => true,
-            'documents.ocr.credentials' => Storage::disk('local')->path('testing/vision.json'),
+            'documents.ocr.api_key' => 'test-key',
         ]);
-        Http::fake([
-            'https://oauth2.googleapis.com/token' => Http::response(['access_token' => 'test-token', 'expires_in' => 3600]),
-            'https://vision.googleapis.com/v1/files:annotate' => Http::response(['responses' => [[
-                'responses' => [[
-                    'context' => ['pageNumber' => 1],
-                    'fullTextAnnotation' => ['pages' => [[
-                        'width' => 100, 'height' => 200,
-                        'blocks' => [[
-                            'paragraphs' => [[
-                                'words' => [[
-                                    'symbols' => [['text' => 'Scan']],
-                                    'boundingBox' => ['normalizedVertices' => [
-                                        ['x' => 0.1, 'y' => 0.2], ['x' => 0.4, 'y' => 0.2],
-                                        ['x' => 0.4, 'y' => 0.25], ['x' => 0.1, 'y' => 0.25],
-                                    ]],
-                                ]],
-                            ]],
-                        ]],
-                    ]]],
-                ]],
-            ]]]),
+        Http::fake(['https://api.ocr.space/parse/image' => Http::response(['ErrorMessage' => 'Daily rate limit reached.'], 429)]);
+        $owner = User::factory()->create();
+        $documentGuid = $this->actingAs($owner)->postJson('/api/v1/documents', ['title' => 'Quota fallback'])
+            ->assertCreated()->json('data.guid');
+        $queued = $this->postJson("/api/v1/documents/{$documentGuid}/imports", [
+            'file' => UploadedFileFactory::content('mixed.pdf', $this->pdfWithBlankLastPage()),
+        ])->assertAccepted();
+
+        $this->app->make(DocumentConversionService::class)->convert(
+            $queued->json('data.guid'), $queued->json('data.conversion_generation'),
+        );
+
+        $result = $this->getJson('/api/v1/versions/'.$queued->json('data.guid'))
+            ->assertJsonPath('data.conversion_status', 'ready')
+            ->assertJsonPath('data.conversion_error_code', null);
+        $this->assertStringContainsString('First page editable', $result->json('data.editor_data.blocks.0.data.text'));
+        $this->assertContains('PDF_OCR_SKIPPED_QUOTA', $result->json('data.conversion_warnings'));
+        $this->assertNotContains('PDF_OCR_APPLIED', $result->json('data.conversion_warnings'));
+        Http::assertSentCount(1);
+    }
+
+    public function test_scan_only_pdf_over_limit_fails_without_calling_provider(): void
+    {
+        Storage::fake('local');
+        config([
+            'documents.disk' => 'local',
+            'documents.processing.pdftotext_binary' => 'missing-pdftotext-binary',
+            'documents.ocr.max_pages' => 2,
         ]);
+        Storage::disk('local')->put('scan.pdf', $this->scannedPdf());
+        Http::fake();
 
-        $result = app(CloudVisionOcrClient::class)->annotate('%PDF-test', [1]);
+        try {
+            app(SourceDocumentConverter::class)->convert(SourceType::Pdf, 'scan.pdf');
+            $this->fail('A scan-only PDF above the OCR page limit must fail.');
+        } catch (ApiException $exception) {
+            $this->assertSame('OCR_LIMIT_EXCEEDED', $exception->errorCode);
+        }
 
-        $this->assertSame('Scan', $result[1]['words'][0]['text']);
-        $this->assertSame(0.1, $result[1]['words'][0]['polygon'][0][0]);
+        Http::assertNothingSent();
+    }
+
+    public function test_scan_only_pdf_fails_with_quota_code_instead_of_becoming_a_successful_empty_import(): void
+    {
+        Storage::fake('local');
+        config([
+            'documents.disk' => 'local',
+            'documents.processing.pdftotext_binary' => 'missing-pdftotext-binary',
+            'documents.ocr.enabled' => true,
+            'documents.ocr.api_key' => 'test-key',
+        ]);
+        Storage::disk('local')->put('scan.pdf', $this->scannedPdf());
+        Http::fake(['https://api.ocr.space/parse/image' => Http::response(['ErrorMessage' => 'Daily request quota reached.'], 429)]);
+
+        try {
+            app(SourceDocumentConverter::class)->convert(SourceType::Pdf, 'scan.pdf');
+            $this->fail('A scan-only PDF without an available OCR quota must fail.');
+        } catch (ApiException $exception) {
+            $this->assertSame('OCR_QUOTA_EXHAUSTED', $exception->errorCode);
+            $this->assertStringNotContainsString('Daily request quota', $exception->getMessage());
+        }
+    }
+
+    public function test_ocr_space_auth_error_is_structured_and_does_not_expose_provider_details(): void
+    {
+        config(['documents.ocr.enabled' => true, 'documents.ocr.api_key' => 'test-key']);
+        Http::fake(['https://api.ocr.space/parse/image' => Http::response(['ErrorMessage' => 'Invalid API key: private-provider-detail'], 403)]);
+
+        try {
+            app(OcrSpaceOcrClient::class)->extractText('%PDF-test', 1);
+            $this->fail('An invalid provider key must fail with a structured error.');
+        } catch (ApiException $exception) {
+            $this->assertSame('OCR_PROVIDER_NOT_CONFIGURED', $exception->errorCode);
+            $this->assertStringNotContainsString('private-provider-detail', $exception->getMessage());
+        }
+    }
+
+    public function test_ocr_space_keeps_page_order_when_a_page_fails(): void
+    {
+        config(['documents.ocr.enabled' => true, 'documents.ocr.api_key' => 'test-key']);
+        Http::fake(['https://api.ocr.space/parse/image' => Http::response([
+            'OCRExitCode' => 2,
+            'IsErroredOnProcessing' => true,
+            'ParsedResults' => [
+                ['FileParseExitCode' => 1, 'ParsedText' => 'Halaman satu'],
+                ['FileParseExitCode' => -10],
+                ['FileParseExitCode' => 1, 'ParsedText' => ''],
+            ],
+        ], 200)]);
+
+        $this->assertSame(['Halaman satu', null, ''], app(OcrSpaceOcrClient::class)->extractText('%PDF-test', 3));
     }
 
     public function test_import_requires_replace_confirmation_and_old_job_cannot_overwrite_edit(): void
@@ -205,7 +304,37 @@ class ImportConversionTest extends TestCase
         $this->assertContains('PDF_PHP_FALLBACK', $result->json('data.conversion_warnings'));
     }
 
-    public function test_pdf_with_supported_embedded_image_yields_image_block(): void
+    public function test_php_fallback_keeps_a_blank_trailing_page_and_partial_ocr_warning(): void
+    {
+        Storage::fake('local');
+        config([
+            'documents.disk' => 'local',
+            'documents.processing.pdftotext_binary' => 'missing-pdftotext-binary',
+            'documents.ocr.enabled' => true,
+            'documents.ocr.api_key' => 'test-key',
+        ]);
+        Http::fake(['https://api.ocr.space/parse/image' => Http::response($this->ocrSpaceResponse([
+            'First page editable', '',
+        ]), 200)]);
+        $owner = User::factory()->create();
+        $documentGuid = $this->actingAs($owner)->postJson('/api/v1/documents', ['title' => 'Blank page'])
+            ->assertCreated()->json('data.guid');
+        $queued = $this->postJson("/api/v1/documents/{$documentGuid}/imports", [
+            'file' => UploadedFileFactory::content('blank-tail.pdf', $this->pdfWithBlankLastPage()),
+        ])->assertAccepted();
+
+        $this->app->make(DocumentConversionService::class)->convert(
+            $queued->json('data.guid'), $queued->json('data.conversion_generation'),
+        );
+
+        $result = $this->getJson('/api/v1/versions/'.$queued->json('data.guid'))
+            ->assertJsonPath('data.conversion_status', 'ready')
+            ->assertJsonPath('data.conversion_page_count', 2);
+        $this->assertContains('PDF_OCR_PARTIAL', $result->json('data.conversion_warnings'));
+        $this->assertStringContainsString('First page editable', $result->json('data.editor_data.blocks.0.data.text'));
+    }
+
+    public function test_pdf_with_supported_embedded_image_is_omitted_from_import(): void
     {
         Storage::fake('local');
         config(['documents.disk' => 'local']);
@@ -232,7 +361,7 @@ class ImportConversionTest extends TestCase
         $this->app->make(DocumentConversionService::class)->convert($version->guid, $queued->json('data.conversion_generation'));
         $blocks = $this->getJson('/api/v1/versions/'.$version->guid)->assertJsonPath('data.conversion_status', 'ready')
             ->json('data.editor_data.blocks');
-        $this->assertContains('image', array_column($blocks, 'type'));
+        $this->assertNotContains('image', array_column($blocks, 'type'));
     }
 
     private function pdf(): string
@@ -261,6 +390,44 @@ class ImportConversionTest extends TestCase
         }
 
         return $pdf."trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n".$xref."\n%%EOF\n";
+    }
+
+    private function pdfWithBlankLastPage(): string
+    {
+        $text = "BT /F1 12 Tf 72 720 Td (First page editable) Tj ET\n";
+        $objects = [
+            '<< /Type /Catalog /Pages 2 0 R >>',
+            '<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>',
+            '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 6 0 R >>',
+            '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> >>',
+            '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+            '<< /Length '.strlen($text).">>\nstream\n".$text.'endstream',
+        ];
+        $pdf = "%PDF-1.4\n";
+        $offsets = [];
+        foreach ($objects as $index => $object) {
+            $offsets[] = strlen($pdf);
+            $pdf .= ($index + 1)." 0 obj\n".$object."\nendobj\n";
+        }
+        $xref = strlen($pdf);
+        $pdf .= "xref\n0 7\n0000000000 65535 f \n";
+        foreach ($offsets as $offset) {
+            $pdf .= sprintf("%010d 00000 n \n", $offset);
+        }
+
+        return $pdf."trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n".$xref."\n%%EOF\n";
+    }
+
+    private function ocrSpaceResponse(array $texts, int $exitCode = 1): array
+    {
+        return [
+            'OCRExitCode' => $exitCode,
+            'IsErroredOnProcessing' => false,
+            'ParsedResults' => array_map(fn (?string $text): array => [
+                'FileParseExitCode' => 1,
+                'ParsedText' => $text,
+            ], $texts),
+        ];
     }
 
     private function scannedPdf(): string

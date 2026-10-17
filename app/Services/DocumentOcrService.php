@@ -16,7 +16,7 @@ use Throwable;
 class DocumentOcrService
 {
     public function __construct(
-        private readonly CloudVisionOcrClient $vision,
+        private readonly OcrSpaceOcrClient $ocrSpace,
         private readonly StoredPreviewSnapshot $preview,
     ) {}
 
@@ -27,15 +27,17 @@ class DocumentOcrService
         if ($existing->count() === $pdf['pages']) {
             return $this->response($version, $expectedHash, '');
         }
-        if (! $this->vision->isConfigured()) {
-            return $this->unavailable($version, $expectedHash, $pdf['pages']);
-        }
 
         $pdf = $this->pdf($version, $expectedHash);
         $analysis = $this->scannedPages($pdf['bytes'], $pdf['pages']);
         $ocrPages = $analysis['pages'];
-        $limitExceeded = count($ocrPages) > (int) config('documents.ocr.max_pages')
-            || (bool) $ocrPages && strlen($pdf['bytes']) > (int) config('documents.ocr.max_bytes');
+        if (! $this->ocrSpace->isConfigured()) {
+            return $this->unavailable($version, $expectedHash, $pdf['pages']);
+        }
+        $limitExceeded = $ocrPages !== [] && (
+            $pdf['pages'] > (int) config('documents.ocr.max_pages')
+            || strlen($pdf['bytes']) > (int) config('documents.ocr.max_bytes')
+        );
 
         return DB::transaction(function () use ($version, $expectedHash, $pdf, $ocrPages, $analysis, $limitExceeded): array {
             $current = DocumentVersion::where('guid', $version->guid)->lockForUpdate()->firstOrFail();
@@ -46,10 +48,13 @@ class DocumentOcrService
                 return $this->response($current, $expectedHash, '');
             }
 
-            DocumentOcrPage::where('version_guid', $current->guid)->delete();
+            $existingNumbers = $this->pages($current, $expectedHash)->pluck('page_number')->map(fn ($number) => (int) $number)->all();
             $now = now();
             $rows = [];
             foreach (range(1, $pdf['pages']) as $number) {
+                if (in_array($number, $existingNumbers, true)) {
+                    continue;
+                }
                 $needsOcr = in_array($number, $ocrPages, true);
                 $rows[] = [
                     'version_guid' => $current->guid,
@@ -87,8 +92,12 @@ class DocumentOcrService
     /** @param list<int> $pageNumbers */
     public function retry(DocumentVersion $version, string $expectedHash, array $pageNumbers): array
     {
-        $this->pdf($version, $expectedHash, false);
-        if (! $this->vision->isConfigured()) {
+        $pdf = $this->pdf($version, $expectedHash, false);
+        if ($pdf['pages'] > (int) config('documents.ocr.max_pages')
+            || Storage::disk(config('documents.disk'))->size($pdf['path']) > (int) config('documents.ocr.max_bytes')) {
+            throw ApiException::conflict('OCR_LIMIT_EXCEEDED', 'PDF melewati batas OCR gratis: maksimal 1 MB dan 3 halaman.');
+        }
+        if (! $this->ocrSpace->isConfigured()) {
             throw ApiException::conflict('OCR_PROVIDER_NOT_CONFIGURED', 'Layanan OCR belum dikonfigurasi.');
         }
 
@@ -119,12 +128,6 @@ class DocumentOcrService
         if ($queued === []) {
             return;
         }
-        if (! $this->vision->isConfigured()) {
-            $this->failPages($versionGuid, $pdfHash, $queued, 'OCR_PROVIDER_NOT_CONFIGURED', false);
-
-            return;
-        }
-
         try {
             $pdf = $this->pdf($version, $pdfHash);
         } catch (ApiException) {
@@ -132,34 +135,41 @@ class DocumentOcrService
 
             return;
         }
+        if ($pdf['pages'] > (int) config('documents.ocr.max_pages')
+            || strlen($pdf['bytes']) > (int) config('documents.ocr.max_bytes')) {
+            $this->failPages($versionGuid, $pdfHash, $queued, 'OCR_LIMIT_EXCEEDED', false);
 
-        foreach (array_chunk($queued, 5) as $batchIndex => $batch) {
-            DocumentOcrPage::where('version_guid', $versionGuid)->where('pdf_hash', $pdfHash)->whereIn('page_number', $batch)
-                ->whereIn('status', ['queued', 'processing'])->update(['status' => 'processing', 'updated_at' => now()]);
-            try {
-                $results = $this->vision->annotate($pdf['bytes'], $batch);
-            } catch (ApiException $exception) {
-                $retryable = in_array($exception->errorCode, ['OCR_SERVICE_UNAVAILABLE', 'OCR_QUOTA_EXHAUSTED'], true);
-                $remaining = array_slice($queued, $batchIndex * 5);
-                $this->failPages($versionGuid, $pdfHash, $remaining, $exception->errorCode, $retryable);
-                break;
-            }
-            foreach ($batch as $number) {
-                $pageResult = $results[$number] ?? ['width' => null, 'height' => null, 'words' => []];
-                $words = $pageResult['words'];
+            return;
+        }
+
+        DocumentOcrPage::where('version_guid', $versionGuid)->where('pdf_hash', $pdfHash)->whereIn('page_number', $queued)
+            ->whereIn('status', ['queued', 'processing'])->update(['status' => 'processing', 'updated_at' => now()]);
+        try {
+            $texts = $this->ocrSpace->extractText($pdf['bytes'], $pdf['pages']);
+            foreach ($queued as $number) {
+                $text = $texts[$number - 1] ?? null;
+                if ($text === null) {
+                    $this->failPages($versionGuid, $pdfHash, [$number], 'OCR_TEXT_UNRECOGNIZED', false);
+
+                    continue;
+                }
+                // shortcut: OCR.Space omits raster dimensions; add boxes after a fixture proves the PDF.js transform.
                 DocumentOcrPage::where('version_guid', $versionGuid)->where('pdf_hash', $pdfHash)->where('page_number', $number)
-                    ->update([
+                    ->where('status', 'processing')->update([
                         'status' => 'completed',
-                        'text' => implode(' ', array_column($words, 'text')),
-                        'words' => json_encode($words, JSON_THROW_ON_ERROR),
-                        'page_width' => $pageResult['width'],
-                        'page_height' => $pageResult['height'],
+                        'text' => $text,
+                        'words' => '[]',
+                        'page_width' => null,
+                        'page_height' => null,
                         'error_code' => null,
                         'retryable' => false,
                         'processed_at' => now(),
                         'updated_at' => now(),
                     ]);
             }
+        } catch (ApiException $exception) {
+            $retryable = in_array($exception->errorCode, ['OCR_SERVICE_UNAVAILABLE', 'OCR_QUOTA_EXHAUSTED'], true);
+            $this->failPages($versionGuid, $pdfHash, $queued, $exception->errorCode, $retryable);
         }
     }
 
@@ -281,15 +291,16 @@ class DocumentOcrService
         $matches = [];
         foreach ($pages->where('status', 'completed')->where('source', 'ocr') as $page) {
             $words = $page->words ?? [];
-            $text = implode(' ', array_column($words, 'text'));
+            $text = (string) ($page->text ?? implode(' ', array_column($words, 'text')));
             $offset = 0;
             while (($position = mb_stripos($text, $query, $offset, 'UTF-8')) !== false && count($matches) < 500) {
                 $end = $position + mb_strlen($query, 'UTF-8');
                 $cursor = 0;
                 $polygons = [];
                 foreach ($words as $word) {
-                    $wordEnd = $cursor + mb_strlen($word['text'], 'UTF-8');
-                    if ($wordEnd > $position && $cursor < $end) {
+                    $wordText = $word['text'] ?? '';
+                    $wordEnd = $cursor + mb_strlen($wordText, 'UTF-8');
+                    if ($wordEnd > $position && $cursor < $end && isset($word['polygon'])) {
                         $polygons[] = $word['polygon'];
                     }
                     $cursor = $wordEnd + 1;

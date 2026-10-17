@@ -17,7 +17,7 @@ class ConvertDocumentImport implements ShouldBeUnique, ShouldQueue
 
     public int $tries = 3;
 
-    public int $timeout = 75;
+    public int $timeout = 180;
 
     public int $uniqueFor = 900;
 

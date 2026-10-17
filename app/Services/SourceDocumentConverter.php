@@ -11,7 +11,6 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Smalot\PdfParser\Config as PdfParserConfig;
 use Smalot\PdfParser\Parser as PdfParser;
-use Smalot\PdfParser\XObject\Image as PdfImage;
 use Symfony\Component\Process\Process;
 use ZipArchive;
 
@@ -19,7 +18,7 @@ class SourceDocumentConverter
 {
     public function __construct(
         private readonly EditorDataSanitizer $sanitizer,
-        private readonly CloudVisionOcrClient $vision,
+        private readonly OcrSpaceOcrClient $ocrSpace,
     ) {}
 
     /** @return array{editor_data: array<string, mixed>, pages: int, warnings: list<string>} */
@@ -82,11 +81,7 @@ class SourceDocumentConverter
             $fallback = true;
         }
         $pages = $fallback ? $this->phpPdfPages($path) : (preg_split('/\f/', $process->getOutput()) ?: []);
-        if ($fallback) {
-            while (count($pages) > 1 && trim(end($pages)) === '') {
-                array_pop($pages);
-            }
-        } else {
+        if (! $fallback) {
             $pages = $this->preservePdfPageCount($path, $pages);
         }
         if (count($pages) > (int) config('documents.processing.max_pages')) {
@@ -95,40 +90,57 @@ class SourceDocumentConverter
 
         $scannedPages = array_keys(array_filter($pages, fn (string $page): bool => trim($page) === ''));
         $unrecognizedPages = [];
+        $warnings = ['PDF_LAYOUT_APPROXIMATE', 'PDF_GRAPHICS_REQUIRE_REVIEW', 'PDF_TABLES_REQUIRE_REVIEW'];
         if ($scannedPages !== []) {
-            if (! $this->vision->isConfigured()) {
-                throw new ApiException(422, 'PDF_TEXT_LAYER_MISSING', 'PDF scan membutuhkan OCR yang belum dikonfigurasi.');
-            }
-
             $bytes = file_get_contents($path);
-            if (! is_string($bytes) || count($scannedPages) > (int) config('documents.ocr.max_pages')
-                || strlen($bytes) > (int) config('documents.ocr.max_bytes')) {
-                throw new ApiException(422, 'OCR_LIMIT_EXCEEDED', 'PDF melewati batas halaman atau ukuran OCR.');
+            if (! is_string($bytes)) {
+                throw new ApiException(503, 'OCR_SERVICE_UNAVAILABLE', 'Layanan OCR sedang tidak tersedia.');
             }
 
-            $recognizedPages = [];
-            foreach (array_chunk(array_map(fn (int $page): int => $page + 1, $scannedPages), 5) as $batch) {
-                $recognizedPages += $this->vision->annotate($bytes, $batch);
-            }
-            foreach ($scannedPages as $pageIndex) {
-                $pages[$pageIndex] = implode(' ', array_column($recognizedPages[$pageIndex + 1]['words'] ?? [], 'text'));
-                if (trim($pages[$pageIndex]) === '') {
-                    $unrecognizedPages[] = $pageIndex;
+            $hasNativeText = trim(implode('', $pages)) !== '';
+            if (count($pages) > (int) config('documents.ocr.max_pages')
+                || strlen($bytes) > (int) config('documents.ocr.max_bytes')) {
+                if (! $hasNativeText) {
+                    throw new ApiException(422, 'OCR_LIMIT_EXCEEDED', 'PDF melewati batas OCR gratis: maksimal 1 MB dan 3 halaman.');
                 }
-            }
-            if (trim(implode('', $pages)) === '') {
-                throw new ApiException(422, 'OCR_TEXT_UNRECOGNIZED', 'OCR tidak menemukan teks yang dapat diedit pada PDF.');
+
+                $warnings[] = 'PDF_OCR_SKIPPED_LIMIT';
+            } else {
+                try {
+                    $recognizedPages = $this->ocrSpace->extractText($bytes, count($pages));
+                } catch (ApiException $exception) {
+                    if (! $hasNativeText || ! in_array($exception->errorCode, ['OCR_LIMIT_EXCEEDED', 'OCR_QUOTA_EXHAUSTED'], true)) {
+                        throw $exception;
+                    }
+
+                    $warnings[] = $exception->errorCode === 'OCR_QUOTA_EXHAUSTED'
+                        ? 'PDF_OCR_SKIPPED_QUOTA'
+                        : 'PDF_OCR_SKIPPED_LIMIT';
+                    $recognizedPages = [];
+                }
+
+                if ($recognizedPages !== []) {
+                    foreach ($scannedPages as $pageIndex) {
+                        $pages[$pageIndex] = $recognizedPages[$pageIndex] ?? '';
+                        if (trim($pages[$pageIndex]) === '') {
+                            $unrecognizedPages[] = $pageIndex;
+                        }
+                    }
+                    if (trim(implode('', $pages)) === '') {
+                        throw new ApiException(422, 'OCR_TEXT_UNRECOGNIZED', 'Teks pada PDF scan tidak berhasil dikenali.');
+                    }
+                }
             }
         }
 
-        $warnings = ['PDF_LAYOUT_APPROXIMATE', 'PDF_GRAPHICS_REQUIRE_REVIEW', 'PDF_TABLES_REQUIRE_REVIEW'];
-        if ($scannedPages !== []) {
+        if ($scannedPages !== [] && count($unrecognizedPages) < count($scannedPages)
+            && ! in_array('PDF_OCR_SKIPPED_LIMIT', $warnings, true)
+            && ! in_array('PDF_OCR_SKIPPED_QUOTA', $warnings, true)) {
             $warnings[] = 'PDF_OCR_APPLIED';
         }
         if ($unrecognizedPages !== []) {
             $warnings[] = 'PDF_OCR_PARTIAL';
         }
-        $images = $this->pdfImages($path, count($pages), $warnings);
         $blocks = [];
         foreach ($pages as $pageIndex => $page) {
             $chunks = preg_split('/(?:\r?\n){2,}/', trim($page)) ?: [];
@@ -147,7 +159,6 @@ class SourceDocumentConverter
                     $blocks[] = ['type' => 'paragraph', 'data' => ['text' => e(implode(' ', $lines))]];
                 }
             }
-            array_push($blocks, ...($images[$pageIndex] ?? []));
         }
 
         if ($fallback) {
@@ -173,61 +184,11 @@ class SourceDocumentConverter
 
             return array_pad(array_slice($pages, 0, $count), $count, '');
         } catch (\Throwable) {
-            while (count($pages) > 1 && trim(end($pages)) === '') {
+            if (count($pages) > 1 && trim(end($pages)) === '') {
                 array_pop($pages);
             }
 
             return $pages;
-        }
-    }
-
-    /** @param list<string> $warnings
-     * @return array<int, list<array<string, mixed>>>
-     */
-    private function pdfImages(string $path, int $pageCount, array &$warnings): array
-    {
-        try {
-            $config = new PdfParserConfig;
-            $config->setDecodeMemoryLimit(32 * 1024 * 1024);
-            $document = (new PdfParser([], $config))->parseFile($path);
-            $pages = $document->getPages();
-            $images = [];
-            foreach ($pages as $pageIndex => $page) {
-                if ($pageIndex >= $pageCount) {
-                    break;
-                }
-                $seen = [];
-                $objects = $page->getXObjects();
-                if ($objects === [] && count($pages) === 1) {
-                    $objects = $document->getObjectsByType('XObject', 'Image');
-                    if ($objects !== []) {
-                        $warnings[] = 'PDF_IMAGE_POSITION_APPROXIMATE';
-                    }
-                }
-                foreach ($objects as $object) {
-                    if (! $object instanceof PdfImage || isset($seen[spl_object_id($object)])) {
-                        continue;
-                    }
-                    $seen[spl_object_id($object)] = true;
-                    $block = $this->imageBlock($object->getContent());
-                    if ($block === null) {
-                        $warnings[] = 'PDF_IMAGE_SKIPPED';
-
-                        continue;
-                    }
-                    $images[$pageIndex][] = $block;
-                }
-            }
-
-            if ($images === [] && $document->hasObjectsByType('XObject', 'Image')) {
-                $warnings[] = 'PDF_IMAGE_SKIPPED';
-            }
-
-            return $images;
-        } catch (\Throwable) {
-            $warnings[] = 'PDF_IMAGE_EXTRACTION_FAILED';
-
-            return [];
         }
     }
 

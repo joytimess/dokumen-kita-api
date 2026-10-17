@@ -15,7 +15,7 @@ class ProcessDocumentOcr implements ShouldBeUnique, ShouldQueue
 
     public int $tries = 3;
 
-    public int $timeout = 80;
+    public int $timeout = 120;
 
     public int $uniqueFor = 900;
 

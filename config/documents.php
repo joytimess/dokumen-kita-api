@@ -39,10 +39,10 @@ return [
 
     'ocr' => [
         'enabled' => (bool) env('DOCUMENT_OCR_ENABLED', false),
-        'credentials' => env('DOCUMENT_OCR_CREDENTIALS'),
-        'max_pages' => (int) env('DOCUMENT_OCR_MAX_PAGES', 10),
-        'max_bytes' => (int) env('DOCUMENT_OCR_MAX_BYTES', 8388608),
-        'timeout' => min(20, max(5, (int) env('DOCUMENT_OCR_TIMEOUT', 20))),
+        'api_key' => env('OCR_SPACE_API_KEY'),
+        'max_pages' => min(3, max(0, (int) env('DOCUMENT_OCR_MAX_PAGES', 3))),
+        'max_bytes' => min(1_000_000, max(0, (int) env('DOCUMENT_OCR_MAX_BYTES', 1_000_000))),
+        'timeout' => min(60, max(1, (int) env('DOCUMENT_OCR_TIMEOUT', 60))),
     ],
 
     'editor' => [

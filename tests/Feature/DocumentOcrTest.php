@@ -6,23 +6,22 @@ use App\Jobs\ProcessDocumentOcr;
 use App\Models\DocumentOcrPage;
 use App\Models\User;
 use App\Services\DocumentOcrService;
+use App\Services\OcrSpaceOcrClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Http\Client\Request as ClientRequest;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Mockery\MockInterface;
 use Tests\TestCase;
 
 class DocumentOcrTest extends TestCase
 {
     use RefreshDatabase, SignatureFixtures;
 
-    public function test_ocr_is_disabled_without_credentials_and_does_not_send_a_request(): void
+    public function test_ocr_is_unavailable_when_disabled(): void
     {
+        config(['documents.ocr.enabled' => false]);
         $owner = User::factory()->create();
         $version = $this->preparedDraft($owner, []);
-        Http::preventStrayRequests();
 
         $this->actingAs($owner)->postJson("/api/v1/versions/{$version->guid}/ocr", ['expected_hash' => $version->content_hash])
             ->assertAccepted()->assertJsonPath('data.processing_status', 'unavailable')
@@ -34,7 +33,7 @@ class DocumentOcrTest extends TestCase
             ->assertNotFound();
     }
 
-    public function test_mixed_pdf_skips_native_page_and_returns_page_scoped_word_boxes(): void
+    public function test_mixed_pdf_skips_native_page_and_returns_search_hits_without_unverified_boxes(): void
     {
         Storage::fake('local');
         config(['documents.disk' => 'local']);
@@ -43,11 +42,11 @@ class DocumentOcrTest extends TestCase
         $bytes = $this->mixedPdf();
         Storage::disk('local')->put($version->preview_pdf_path, $bytes);
         $version->update(['content_hash' => hash('sha256', $bytes), 'preview_page_count' => 2]);
-        $this->enableVision();
-        Http::fake([
-            'https://oauth2.googleapis.com/token' => Http::response(['access_token' => 'test-token', 'expires_in' => 3600]),
-            'https://vision.googleapis.com/v1/files:annotate' => Http::response($this->visionResponse()),
-        ]);
+        $this->mock(OcrSpaceOcrClient::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('isConfigured')->once()->andReturn(true);
+            $mock->shouldReceive('extractText')->once()->withArgs(fn (string $pdf, int $pages): bool => $pages === 2)
+                ->andReturn(['Native searchable text', 'Laporan']);
+        });
 
         $this->actingAs($owner)->postJson("/api/v1/versions/{$version->guid}/ocr", ['expected_hash' => $version->content_hash])
             ->assertAccepted()->assertJsonPath('data.processing_status', 'queued')
@@ -56,16 +55,13 @@ class DocumentOcrTest extends TestCase
         $this->assertDatabaseHas('document_ocr_pages', ['version_guid' => $version->guid, 'page_number' => 2, 'source' => 'ocr', 'status' => 'queued']);
         app(DocumentOcrService::class)->process($version->guid, $version->content_hash);
 
-        Http::assertSent(fn (ClientRequest $request) => str_contains($request->url(), 'files:annotate')
-            && $request['requests'][0]['pages'] === [2]);
         $this->actingAs($owner)->getJson("/api/v1/versions/{$version->guid}/ocr?expected_hash={$version->content_hash}&query=Laporan")
             ->assertOk()->assertJsonPath('data.processing_status', 'completed')
             ->assertJsonPath('data.matches.0.page_number', 2)
             ->assertJsonPath('data.matches.0.snippet', 'Laporan')
-            ->assertJsonPath('data.matches.0.page_dimensions.width', 100)
-            ->assertJsonPath('data.matches.0.page_dimensions.height', 200)
-            ->assertJsonPath('data.matches.0.polygons.0.0.0', 0.1)
-            ->assertJsonPath('data.matches.0.polygons.0.2.1', 0.25);
+            ->assertJsonPath('data.matches.0.page_dimensions.width', null)
+            ->assertJsonPath('data.matches.0.page_dimensions.height', null)
+            ->assertJsonCount(0, 'data.matches.0.polygons');
     }
 
     public function test_completed_ocr_with_no_recognized_text_is_reported_as_empty_result(): void
@@ -77,14 +73,10 @@ class DocumentOcrTest extends TestCase
         $bytes = $this->mixedPdf();
         Storage::disk('local')->put($version->preview_pdf_path, $bytes);
         $version->update(['content_hash' => hash('sha256', $bytes), 'preview_page_count' => 2]);
-        $this->enableVision();
-        Http::fake([
-            'https://oauth2.googleapis.com/token' => Http::response(['access_token' => 'test-token', 'expires_in' => 3600]),
-            'https://vision.googleapis.com/v1/files:annotate' => Http::response(['responses' => [[
-                'context' => ['pageNumber' => 2],
-                'fullTextAnnotation' => ['pages' => [['width' => 100, 'height' => 200, 'blocks' => []]]],
-            ]]]),
-        ]);
+        $this->mock(OcrSpaceOcrClient::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('isConfigured')->once()->andReturn(true);
+            $mock->shouldReceive('extractText')->once()->andReturn(['Native searchable text', '']);
+        });
 
         $this->actingAs($owner)->postJson("/api/v1/versions/{$version->guid}/ocr", ['expected_hash' => $version->content_hash])->assertAccepted();
         app(DocumentOcrService::class)->process($version->guid, $version->content_hash);
@@ -96,39 +88,56 @@ class DocumentOcrTest extends TestCase
             ->assertJsonCount(0, 'data.matches');
     }
 
+    public function test_viewer_keeps_successful_pages_when_ocr_space_returns_a_page_error(): void
+    {
+        Storage::fake('local');
+        config(['documents.disk' => 'local']);
+        $owner = User::factory()->create();
+        $version = $this->preparedDraft($owner, []);
+        $this->mock(OcrSpaceOcrClient::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('isConfigured')->once()->andReturn(true);
+            $mock->shouldReceive('extractText')->once()->andReturn(['Laporan', null]);
+        });
+
+        app(DocumentOcrService::class)->start($version, $version->content_hash);
+        app(DocumentOcrService::class)->process($version->guid, $version->content_hash);
+
+        $this->actingAs($owner)->getJson("/api/v1/versions/{$version->guid}/ocr?expected_hash={$version->content_hash}&query=Laporan")
+            ->assertOk()->assertJsonPath('data.processing_status', 'partial')
+            ->assertJsonPath('data.matches.0.page_number', 1)
+            ->assertJsonPath('data.failed_pages.0.error_code', 'OCR_TEXT_UNRECOGNIZED')
+            ->assertJsonPath('data.failed_pages.0.retryable', false);
+    }
+
     public function test_failed_pages_can_be_retried_without_resetting_completed_pages(): void
     {
         Storage::fake('local');
         config(['documents.disk' => 'local']);
         $owner = User::factory()->create();
         $version = $this->preparedDraft($owner, []);
-        $this->enableVision();
-        Http::fake([
-            'https://oauth2.googleapis.com/token' => Http::response(['access_token' => 'test-token', 'expires_in' => 3600]),
-            'https://vision.googleapis.com/v1/files:annotate' => Http::sequence()
-                ->push(['error' => ['code' => 503]], 503)
-                ->push($this->visionResponse(1)),
-        ]);
+        $this->mock(OcrSpaceOcrClient::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('isConfigured')->times(3)->andReturn(true);
+            $mock->shouldReceive('extractText')->twice()->andReturn(['Laporan', 'Laporan kedua']);
+        });
         $this->actingAs($owner)->postJson("/api/v1/versions/{$version->guid}/ocr", ['expected_hash' => $version->content_hash])->assertAccepted();
         app(DocumentOcrService::class)->process($version->guid, $version->content_hash);
-        $this->assertDatabaseHas('document_ocr_pages', ['version_guid' => $version->guid, 'page_number' => 1, 'status' => 'failed', 'retryable' => true]);
-
+        $this->assertDatabaseHas('document_ocr_pages', ['version_guid' => $version->guid, 'page_number' => 1, 'status' => 'completed', 'text' => 'Laporan']);
         DocumentOcrPage::where('version_guid', $version->guid)->where('page_number', 2)->update([
-            'status' => 'completed', 'text' => 'keep this page', 'words' => '[]',
+            'status' => 'failed', 'error_code' => 'OCR_QUOTA_EXHAUSTED', 'retryable' => true,
         ]);
         $this->actingAs($owner)->postJson("/api/v1/versions/{$version->guid}/ocr/retry", [
-            'expected_hash' => $version->content_hash, 'pages' => [1],
-        ])->assertAccepted()->assertJsonPath('data.page_counts.completed', 1);
-        $this->assertDatabaseHas('document_ocr_pages', ['version_guid' => $version->guid, 'page_number' => 2, 'status' => 'completed', 'text' => 'keep this page']);
-        $this->actingAs($owner)->postJson("/api/v1/versions/{$version->guid}/ocr/retry", [
             'expected_hash' => $version->content_hash, 'pages' => [2],
+        ])->assertAccepted()->assertJsonPath('data.page_counts.completed', 1);
+        $this->assertDatabaseHas('document_ocr_pages', ['version_guid' => $version->guid, 'page_number' => 1, 'status' => 'completed', 'text' => 'Laporan']);
+        $this->actingAs($owner)->postJson("/api/v1/versions/{$version->guid}/ocr/retry", [
+            'expected_hash' => $version->content_hash, 'pages' => [1],
         ])->assertConflict()->assertJsonPath('error.code', 'OCR_PAGES_NOT_RETRYABLE');
 
         app(DocumentOcrService::class)->process($version->guid, $version->content_hash);
         $ocrPage = DocumentOcrPage::where('version_guid', $version->guid)->where('page_number', 1)->firstOrFail();
         $this->assertSame('completed', $ocrPage->status, $ocrPage->error_code ?? 'OCR returned no error code');
         $this->assertDatabaseHas('document_ocr_pages', ['version_guid' => $version->guid, 'page_number' => 1, 'status' => 'completed']);
-        $this->assertDatabaseHas('document_ocr_pages', ['version_guid' => $version->guid, 'page_number' => 2, 'status' => 'completed', 'text' => 'keep this page']);
+        $this->assertDatabaseHas('document_ocr_pages', ['version_guid' => $version->guid, 'page_number' => 2, 'status' => 'completed', 'text' => 'Laporan kedua']);
         $this->actingAs($owner)->getJson("/api/v1/versions/{$version->guid}/ocr?expected_hash={$version->content_hash}&query=Laporan")
             ->assertOk()->assertJsonPath('data.matches.0.page_number', 1);
     }
@@ -139,13 +148,41 @@ class DocumentOcrTest extends TestCase
         config(['documents.disk' => 'local', 'documents.ocr.max_pages' => 1]);
         $owner = User::factory()->create();
         $version = $this->preparedDraft($owner, []);
-        $this->enableVision();
-        Http::preventStrayRequests();
+        $bytes = $this->mixedPdf();
+        Storage::disk('local')->put($version->preview_pdf_path, $bytes);
+        $version->update(['content_hash' => hash('sha256', $bytes), 'preview_page_count' => 2]);
+        $this->mock(OcrSpaceOcrClient::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('isConfigured')->once()->andReturn(true);
+            $mock->shouldNotReceive('extractText');
+        });
 
         $this->actingAs($owner)->postJson("/api/v1/versions/{$version->guid}/ocr", ['expected_hash' => $version->content_hash])
-            ->assertAccepted()->assertJsonPath('data.processing_status', 'failed')
-            ->assertJsonPath('data.page_counts.failed', 2)
+            ->assertAccepted()->assertJsonPath('data.processing_status', 'partial')
+            ->assertJsonPath('data.page_counts.failed', 1)
             ->assertJsonPath('data.failed_pages.0.error_code', 'OCR_LIMIT_EXCEEDED');
+        $this->assertDatabaseHas('document_ocr_pages', [
+            'version_guid' => $version->guid, 'page_number' => 1, 'source' => 'native', 'status' => 'completed',
+        ]);
+    }
+
+    public function test_legacy_ocr_retry_is_rejected_when_the_pdf_exceeds_the_current_limit(): void
+    {
+        Storage::fake('local');
+        config(['documents.disk' => 'local', 'documents.ocr.max_pages' => 1]);
+        $owner = User::factory()->create();
+        $version = $this->preparedDraft($owner, []);
+        DocumentOcrPage::create([
+            'version_guid' => $version->guid,
+            'pdf_hash' => $version->content_hash,
+            'page_number' => 1,
+            'source' => 'ocr',
+            'status' => 'failed',
+            'retryable' => true,
+        ]);
+
+        $this->actingAs($owner)->postJson("/api/v1/versions/{$version->guid}/ocr/retry", [
+            'expected_hash' => $version->content_hash, 'pages' => [1],
+        ])->assertConflict()->assertJsonPath('error.code', 'OCR_LIMIT_EXCEEDED');
     }
 
     public function test_documents_process_dispatches_durable_queued_ocr_pages(): void
@@ -171,11 +208,10 @@ class DocumentOcrTest extends TestCase
         Storage::fake('local');
         config(['documents.disk' => 'local']);
         $version = $this->preparedDraft(User::factory()->create(), []);
-        $this->enableVision();
-        Http::fake([
-            'https://oauth2.googleapis.com/token' => Http::response(['access_token' => 'test-token', 'expires_in' => 3600]),
-            'https://vision.googleapis.com/v1/files:annotate' => Http::response($this->visionResponse(2)),
-        ]);
+        $this->mock(OcrSpaceOcrClient::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('isConfigured')->once()->andReturn(true);
+            $mock->shouldReceive('extractText')->once()->andReturn(['', 'Laporan']);
+        });
         app(DocumentOcrService::class)->start($version, $version->content_hash);
         DocumentOcrPage::where('version_guid', $version->guid)->update(['status' => 'processing']);
 
@@ -185,24 +221,18 @@ class DocumentOcrTest extends TestCase
         $this->assertDatabaseHas('document_ocr_pages', ['version_guid' => $version->guid, 'page_number' => 2, 'status' => 'completed', 'text' => 'Laporan']);
     }
 
-    public function test_quota_failure_is_retryable_and_successful_retry_keeps_other_failed_page(): void
+    public function test_legacy_quota_failure_can_be_retried_without_resetting_other_pages(): void
     {
         Storage::fake('local');
         config(['documents.disk' => 'local']);
         $owner = User::factory()->create();
         $version = $this->preparedDraft($owner, []);
-        $this->enableVision();
-        Http::fake([
-            'https://oauth2.googleapis.com/token' => Http::response(['access_token' => 'test-token', 'expires_in' => 3600]),
-            'https://vision.googleapis.com/v1/files:annotate' => Http::sequence()
-                ->push(['error' => ['code' => 429, 'message' => 'Quota exceeded']], 429)
-                ->push($this->visionResponse(1)),
-        ]);
-        $this->actingAs($owner)->postJson("/api/v1/versions/{$version->guid}/ocr", ['expected_hash' => $version->content_hash])
-            ->assertAccepted();
-        app(DocumentOcrService::class)->process($version->guid, $version->content_hash);
-        $this->assertDatabaseHas('document_ocr_pages', [
-            'version_guid' => $version->guid, 'page_number' => 1,
+        $this->mock(OcrSpaceOcrClient::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('isConfigured')->twice()->andReturn(true);
+            $mock->shouldReceive('extractText')->once()->andReturnUsing(fn (string $pdf, int $pageCount): array => array_fill(0, $pageCount, 'Laporan'));
+        });
+        app(DocumentOcrService::class)->start($version, $version->content_hash);
+        DocumentOcrPage::where('version_guid', $version->guid)->update([
             'status' => 'failed', 'error_code' => 'OCR_QUOTA_EXHAUSTED', 'retryable' => true,
         ]);
 
@@ -215,44 +245,6 @@ class DocumentOcrTest extends TestCase
             'version_guid' => $version->guid, 'page_number' => 2,
             'status' => 'failed', 'error_code' => 'OCR_QUOTA_EXHAUSTED',
         ]);
-    }
-
-    private function enableVision(): void
-    {
-        $key = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_RSA, 'private_key_bits' => 2048]);
-        openssl_pkey_export($key, $privateKey);
-        Storage::disk('local')->put('testing/vision.json', json_encode([
-            'client_email' => 'ocr@example.test', 'private_key' => $privateKey,
-            'token_uri' => 'https://oauth2.googleapis.com/token',
-        ], JSON_THROW_ON_ERROR));
-        config([
-            'documents.ocr.enabled' => true,
-            'documents.ocr.credentials' => Storage::disk('local')->path('testing/vision.json'),
-        ]);
-        Cache::flush();
-    }
-
-    private function visionResponse(int $pageNumber = 2): array
-    {
-        $word = [
-            'symbols' => [['text' => 'Laporan']],
-            'boundingBox' => ['normalizedVertices' => [
-                ['x' => 0.1, 'y' => 0.2], ['x' => 0.4, 'y' => 0.2],
-                ['x' => 0.4, 'y' => 0.25], ['x' => 0.1, 'y' => 0.25],
-            ]],
-        ];
-        $page = [
-            'width' => 100,
-            'height' => 200,
-            'blocks' => [
-                ['paragraphs' => [['words' => [$word]]]],
-            ],
-        ];
-
-        return ['responses' => [[
-            'context' => ['pageNumber' => $pageNumber],
-            'fullTextAnnotation' => ['pages' => [$page]],
-        ]]];
     }
 
     private function mixedPdf(): string
