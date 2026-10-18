@@ -23,6 +23,7 @@ class DocumentService
         private readonly EditorDataSanitizer $sanitizer,
         private readonly SourceFileInspector $inspector,
         private readonly AuditRecorder $audit,
+        private readonly VersionWorkflow $workflow,
     ) {}
 
     /**
@@ -99,7 +100,7 @@ class DocumentService
             $document = Document::where('guid', $version->document_guid)->lockForUpdate()->firstOrFail();
             $locked = DocumentVersion::whereKey($version->getKey())->lockForUpdate()->firstOrFail();
 
-            $this->assertDraft($locked);
+            $this->workflow->assertDraft($locked);
             $this->assertCurrent($document, $locked);
 
             if ($clean !== null && ($changes['editor_revision'] ?? null) !== $locked->editor_revision) {
@@ -158,7 +159,7 @@ class DocumentService
                     ->lockForUpdate()
                     ->firstOrFail();
 
-                $this->assertDraft($version);
+                $this->workflow->assertDraft($version);
                 $this->assertCurrent($lockedDocument, $version);
                 if ($editorRevision !== null && $editorRevision !== $version->editor_revision) {
                     throw ApiException::conflict('EDITOR_REVISION_CONFLICT', 'Draft berubah. Muat ulang editor sebelum mengimpor.');
@@ -214,13 +215,6 @@ class DocumentService
         SignaturePlaceholder::query()
             ->whereIn('assignment_guid', $version->assignments()->select('guid'))
             ->update(['needs_review' => true]);
-    }
-
-    private function assertDraft(DocumentVersion $version): void
-    {
-        if ($version->status !== VersionStatus::Draft) {
-            throw ApiException::conflict('VERSION_NOT_EDITABLE', 'Versi ini sudah tidak dapat diubah. Buat revisi untuk mengubah dokumen.');
-        }
     }
 
     private function assertCurrent(Document $document, DocumentVersion $version): void

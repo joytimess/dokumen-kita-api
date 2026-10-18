@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\PreviewStatus;
+use App\Enums\SourceType;
 use App\Enums\VersionStatus;
 use App\Jobs\GenerateDocumentPreview;
 use App\Models\AuditEvent;
@@ -29,6 +30,25 @@ class DocumentPipelineApiTest extends TestCase
         $this->assertSame($generation, $version->fresh()->preview_generation);
         $this->assertTrue($version->assignments()->firstOrFail()->placeholders()->firstOrFail()->needs_review);
         $this->assertSame(1, AuditEvent::where('action', 'version.preview_requested')->count());
+    }
+
+    public function test_queued_preview_with_a_different_source_starts_a_new_generation(): void
+    {
+        $owner = User::factory()->create();
+        $version = $this->draft($owner, [
+            'source_type' => SourceType::Pdf,
+            'source_path' => 'documents/source.pdf',
+        ]);
+        $url = '/api/v1/versions/'.$version->guid.'/preview';
+
+        $this->actingAs($owner)->postJson($url, ['source' => 'editor'])->assertAccepted();
+        $editorGeneration = $version->fresh()->preview_generation;
+
+        $this->postJson($url, ['source' => 'upload'])->assertAccepted();
+
+        $this->assertNotSame($editorGeneration, $version->fresh()->preview_generation);
+        $this->assertSame('upload', $version->fresh()->preview_source);
+        $this->assertSame(2, AuditEvent::where('action', 'version.preview_requested')->count());
     }
 
     public function test_preview_is_owner_only_and_requires_a_supported_source(): void
@@ -67,6 +87,7 @@ class DocumentPipelineApiTest extends TestCase
         ]]])->assertOk()->assertJsonPath('data.preview_status', 'stale');
         $this->assertNull($version->fresh()->preview_generation);
         $this->postJson('/api/v1/versions/'.$version->guid.'/preview', ['source' => 'editor'])->assertAccepted();
+        $this->assertNotSame($oldGeneration, $version->fresh()->preview_generation);
         (new GenerateDocumentPreview($version->guid, $oldGeneration))->failed(new RuntimeException('old failure'));
 
         $this->assertSame(PreviewStatus::Queued, $version->fresh()->preview_status);

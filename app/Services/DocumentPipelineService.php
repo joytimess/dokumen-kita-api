@@ -48,6 +48,12 @@ class DocumentPipelineService
                 throw new ApiException(422, 'EDITOR_PREVIEW_REQUIRED', 'Kop atau footer memerlukan preview dari editor agar isi tidak tertimpa.');
             }
 
+            if ($locked->preview_status === PreviewStatus::Queued
+                && $locked->preview_source === $source
+                && $locked->preview_generation !== null) {
+                return $locked;
+            }
+
             $generation = (string) Str::uuid();
 
             $locked->update([
@@ -164,28 +170,33 @@ class DocumentPipelineService
                 if ($locked->content_hash !== $version->content_hash || $locked->manifest_hash !== $version->manifest_hash) {
                     throw ApiException::conflict('FINALIZATION_SNAPSHOT_CHANGED', 'Snapshot finalisasi berubah.');
                 }
-                $locked->update([
-                    'final_pdf_path' => $path, 'final_pdf_hash' => hash('sha256', $bytes),
-                    'status' => VersionStatus::Completed, 'finalization_error_code' => null,
-                ]);
-                $locked->document->update(['status' => VersionStatus::Completed]);
-                EmailNotification::firstOrCreate(['deduplication_key' => 'completed:'.$locked->guid], [
-                    'version_guid' => $locked->guid, 'recipient_email' => $locked->document->owner->email,
-                    'notification_type' => 'version_completed', 'status' => 'queued',
-                ]);
-                $this->audit->record('version.completed', $locked->document, $locked, null, ['final_pdf_hash' => $locked->final_pdf_hash]);
-                $this->realtime->notifyOwner($locked, 'version.final_pdf_ready');
-                foreach ($locked->assignments()->with('user')->get() as $assignment) {
-                    if ($assignment->user_guid !== null && $assignment->user_guid !== $locked->document->owner_guid) {
-                        $this->realtime->notifyAssignment($locked, $assignment, 'version.final_pdf_ready');
-                    }
-                }
+                $this->completeFinalization($locked, $path, $bytes);
 
                 return true;
             });
         } finally {
             if (! $kept) {
                 $disk->delete($path);
+            }
+        }
+    }
+
+    private function completeFinalization(DocumentVersion $version, string $path, string $bytes): void
+    {
+        $version->update([
+            'final_pdf_path' => $path, 'final_pdf_hash' => hash('sha256', $bytes),
+            'status' => VersionStatus::Completed, 'finalization_error_code' => null,
+        ]);
+        $version->document->update(['status' => VersionStatus::Completed]);
+        EmailNotification::firstOrCreate(['deduplication_key' => 'completed:'.$version->guid], [
+            'version_guid' => $version->guid, 'recipient_email' => $version->document->owner->email,
+            'notification_type' => 'version_completed', 'status' => 'queued',
+        ]);
+        $this->audit->record('version.completed', $version->document, $version, null, ['final_pdf_hash' => $version->final_pdf_hash]);
+        $this->realtime->notifyOwner($version, 'version.final_pdf_ready');
+        foreach ($version->assignments()->with('user')->get() as $assignment) {
+            if ($assignment->user_guid !== null && $assignment->user_guid !== $version->document->owner_guid) {
+                $this->realtime->notifyAssignment($version, $assignment, 'version.final_pdf_ready');
             }
         }
     }

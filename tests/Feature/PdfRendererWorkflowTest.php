@@ -303,6 +303,20 @@ class PdfRendererWorkflowTest extends TestCase
         $this->assertStringStartsWith('%PDF-', $final);
         $this->assertSame(hash('sha256', $final), $version->final_pdf_hash);
         $this->assertDatabaseHas('user_notifications', ['user_guid' => $version->document->owner_guid, 'event_type' => 'version.final_pdf_ready', 'version_guid' => $version->guid]);
+        $this->assertDatabaseHas('email_notifications', [
+            'version_guid' => $version->guid,
+            'recipient_email' => $owner->email,
+            'notification_type' => 'version_completed',
+            'deduplication_key' => 'completed:'.$version->guid,
+            'status' => 'queued',
+        ]);
+        foreach ([$first, $second] as $signer) {
+            $this->assertDatabaseHas('user_notifications', [
+                'user_guid' => $signer->guid,
+                'event_type' => 'version.final_pdf_ready',
+                'version_guid' => $version->guid,
+            ]);
+        }
         $this->assertGreaterThan(strlen($previewBytes), strlen($final));
         $this->assertCount(2, (new Parser)->parseContent($final)->getPages());
         $this->actingAs($owner)->get("/api/v1/versions/{$version->guid}/pdf")->assertOk();
