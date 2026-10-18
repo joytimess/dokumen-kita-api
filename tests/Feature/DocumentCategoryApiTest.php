@@ -12,6 +12,101 @@ class DocumentCategoryApiTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_category_sorting_happens_before_stable_owner_scoped_pagination(): void
+    {
+        $owner = User::factory()->create();
+        $categories = collect(['Zulu', 'alpha', 'Beta'])->map(fn ($name) => DocumentCategory::create([
+            'owner_guid' => $owner->guid, 'name' => $name, 'normalized_name' => mb_strtolower($name), 'color_token' => 'gray',
+        ]));
+        // Equal timestamps exercise the ID tie breaker on every page.
+        DocumentCategory::where('owner_guid', $owner->guid)->update(['created_at' => '2026-01-01 00:00:00']);
+        Document::factory()->create(['owner_guid' => $owner->guid, 'category_guid' => $categories[0]->guid]);
+        Document::factory()->create(['owner_guid' => $owner->guid, 'category_guid' => $categories[2]->guid]);
+        Document::factory()->create(['owner_guid' => $owner->guid, 'category_guid' => $categories[2]->guid, 'hidden_at' => now()]);
+        DocumentCategory::create([
+            'owner_guid' => User::factory()->create()->guid, 'name' => 'Private', 'normalized_name' => 'private', 'color_token' => 'red',
+        ]);
+
+        $this->actingAs($owner);
+        foreach ([
+            ['created_at', 'desc', [2, 1, 0]], ['created_at', 'asc', [0, 1, 2]],
+            ['name', 'asc', [1, 2, 0]], ['name', 'desc', [0, 2, 1]],
+            ['documents_count', 'desc', [2, 0, 1]], ['documents_count', 'asc', [1, 0, 2]],
+        ] as [$sort, $direction, $order]) {
+            foreach ($order as $index => $categoryIndex) {
+                $this->getJson('/api/v1/categories?'.http_build_query([
+                    'per_page' => 1, 'page' => $index + 1, 'sort_by' => $sort, 'sort_direction' => $direction,
+                ]))->assertOk()->assertJsonCount(1, 'data')
+                    ->assertJsonPath('data.0.guid', $categories[$categoryIndex]->guid)
+                    ->assertJsonPath('data.0.documents_count', [1, 0, 2][$categoryIndex])
+                    ->assertJsonPath('meta.total', 3)->assertJsonPath('meta.last_page', 3)
+                    ->assertJsonStructure(['links' => ['next', 'prev']]);
+            }
+        }
+        $this->getJson('/api/v1/categories?per_page=1')->assertOk()->assertJsonPath('data.0.guid', $categories[2]->guid);
+        $this->getJson('/api/v1/categories?per_page=1&sort_by=documents_count&sort_direction=desc&page=2')
+            ->assertOk()->assertJsonPath('data.0.guid', $categories[0]->guid);
+
+        $categories[0]->forceFill(['created_at' => '2027-01-01 00:00:00'])->save();
+        $this->getJson('/api/v1/categories?per_page=1')->assertOk()->assertJsonPath('data.0.guid', $categories[0]->guid);
+        $this->getJson('/api/v1/categories?per_page=1&sort_direction=asc')->assertOk()->assertJsonPath('data.0.guid', $categories[1]->guid);
+
+        $empty = DocumentCategory::create([
+            'owner_guid' => $owner->guid, 'name' => 'Empty', 'normalized_name' => 'empty', 'color_token' => 'gray',
+        ]);
+        foreach (['asc' => [$categories[1], $empty], 'desc' => [$empty, $categories[1]]] as $direction => $tied) {
+            foreach ($tied as $index => $category) {
+                $page = $direction === 'asc' ? $index + 1 : $index + 3;
+                $this->getJson("/api/v1/categories?per_page=1&sort_by=documents_count&sort_direction={$direction}&page={$page}")
+                    ->assertOk()->assertJsonPath('data.0.guid', $category->guid);
+            }
+        }
+    }
+
+    public function test_category_search_is_case_insensitive_literal_and_applied_before_pagination(): void
+    {
+        $owner = User::factory()->create();
+        foreach (['Annual 50%_!', 'Annual 500', 'Another', 'annual 50%_! archive'] as $name) {
+            DocumentCategory::create([
+                'owner_guid' => $owner->guid, 'name' => $name, 'normalized_name' => mb_strtolower($name), 'color_token' => 'gray',
+            ]);
+        }
+        DocumentCategory::create([
+            'owner_guid' => User::factory()->create()->guid, 'name' => 'Annual 50%_! private',
+            'normalized_name' => 'annual 50%_! private', 'color_token' => 'gray',
+        ]);
+        $this->actingAs($owner)->getJson('/api/v1/categories?'.http_build_query([
+            'q' => '  ANNUAL 50%_!  ', 'per_page' => 1, 'page' => 2, 'sort_by' => 'name', 'sort_direction' => 'asc',
+        ]))->assertOk()->assertJsonPath('data.0.name', 'annual 50%_! archive')->assertJsonPath('meta.total', 2);
+        $this->getJson('/api/v1/categories?per_page=10&q=missing')->assertOk()->assertJsonCount(0, 'data')->assertJsonPath('meta.total', 0);
+    }
+
+    public function test_category_list_without_parameters_keeps_all_alphabetical_options(): void
+    {
+        $owner = User::factory()->create();
+        foreach (range(12, 1) as $index) {
+            $name = sprintf('Category %02d', $index);
+            DocumentCategory::create([
+                'owner_guid' => $owner->guid, 'name' => $name, 'normalized_name' => mb_strtolower($name), 'color_token' => 'gray',
+            ]);
+        }
+        $this->actingAs($owner)->getJson('/api/v1/categories')->assertOk()->assertJsonCount(12, 'data')
+            ->assertJsonPath('data.0.name', 'Category 01')->assertJsonPath('data.11.name', 'Category 12')
+            ->assertJsonMissingPath('meta.current_page')->assertJsonMissingPath('links');
+    }
+
+    public function test_category_list_validates_query_parameters(): void
+    {
+        $this->actingAs(User::factory()->create());
+        foreach ([
+            ['sort_by', 'owner_guid'], ['sort_direction', 'sideways'], ['page', 0], ['page', 'abc'],
+            ['per_page', 0], ['per_page', 101], ['q', str_repeat('a', 256)], ['q', ['array']],
+        ] as [$field, $value]) {
+            $this->getJson('/api/v1/categories?'.http_build_query([$field => $value]))
+                ->assertUnprocessable()->assertJsonPath('error.code', 'VALIDATION_FAILED');
+        }
+    }
+
     public function test_title_search_filters_before_pagination_and_only_returns_owned_documents(): void
     {
         $owner = User::factory()->create();

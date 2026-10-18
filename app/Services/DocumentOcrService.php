@@ -153,7 +153,7 @@ class DocumentOcrService
 
                     continue;
                 }
-                // shortcut: OCR.Space omits raster dimensions; add boxes after a fixture proves the PDF.js transform.
+                // shortcut: viewer OCR stays text-only without full-page raster dimensions; add polygons after a valid PDF.js transform is proven.
                 DocumentOcrPage::where('version_guid', $versionGuid)->where('pdf_hash', $pdfHash)->where('page_number', $number)
                     ->where('status', 'processing')->update([
                         'status' => 'completed',

@@ -2,7 +2,7 @@
 
 Dokumen Kita adalah aplikasi untuk menyusun dokumen, mengatur penerima sesuai urutan, dan meminta persetujuan dengan coretan tanda tangan. Owner dapat membuat draft atau mengimpor PDF/DOCX, mengubah hasil impor di editor, meninjau PDF preview, mengatur posisi tanda tangan, lalu menerbitkan dokumen. Penerima yang sedang mendapat giliran dapat membaca, menandatangani, atau meminta revisi. Setelah semua persetujuan selesai, sistem membentuk PDF final.
 
-Repositori ini adalah **backend API**. Antarmuka pengguna berada di proyek terpisah, `dokumen-kita-web`. Coretan tanda tangan pada aplikasi ini bukan tanda tangan digital tersertifikasi. OCR PDF impor dan pencarian teks viewer memakai OCR.Space jika key dan fitur tersedia. Hasil pencarian OCR viewer belum memiliki highlight karena dokumentasi provider tidak mencantumkan dimensi raster yang dibutuhkan untuk mengubah kotak piksel ke koordinat PDF.js.
+Repositori ini adalah **backend API**. Antarmuka pengguna berada di proyek terpisah, `dokumen-kita-web`. Coretan tanda tangan pada aplikasi ini bukan tanda tangan digital tersertifikasi. OCR PDF impor dan pencarian teks viewer memakai OCR.Space jika key dan fitur tersedia. Pencarian viewer masih text-only: dokumentasi dan respons provider yang diuji memberi kotak kata dalam piksel, tetapi tidak memberi dimensi raster halaman penuh yang diperlukan untuk mengubahnya ke koordinat PDF.js. Lihat [bukti dan status handoff OCR](docs/backend-ocr-handoff.md) serta [panduan setup OCR](docs/ocr-setup.md).
 
 ## Arsitektur
 

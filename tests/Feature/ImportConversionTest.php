@@ -236,6 +236,23 @@ class ImportConversionTest extends TestCase
         $this->assertSame(['Halaman satu', null, ''], app(OcrSpaceOcrClient::class)->extractText('%PDF-test', 3));
     }
 
+    public function test_ocr_space_rejects_null_text_on_a_successful_page(): void
+    {
+        config(['documents.ocr.enabled' => true, 'documents.ocr.api_key' => 'test-key']);
+        Http::fake(['https://api.ocr.space/parse/image' => Http::response([
+            'OCRExitCode' => 1,
+            'IsErroredOnProcessing' => false,
+            'ParsedResults' => [['FileParseExitCode' => 1, 'ParsedText' => null]],
+        ], 200)]);
+
+        try {
+            app(OcrSpaceOcrClient::class)->extractText('%PDF-test', 1);
+            $this->fail('A successful page must contain parsed text, even when it is empty.');
+        } catch (ApiException $exception) {
+            $this->assertSame('OCR_SERVICE_UNAVAILABLE', $exception->errorCode);
+        }
+    }
+
     public function test_import_requires_replace_confirmation_and_old_job_cannot_overwrite_edit(): void
     {
         Storage::fake('local');

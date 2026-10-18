@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Document\AssignDocumentCategoryRequest;
 use App\Http\Requests\Document\BulkAssignDocumentCategoryRequest;
+use App\Http\Requests\Document\ListDocumentCategoriesRequest;
 use App\Http\Requests\Document\ListDocumentsRequest;
 use App\Http\Requests\Document\UpsertDocumentCategoryRequest;
 use App\Http\Resources\DocumentCategoryResource;
@@ -21,14 +22,25 @@ class DocumentCategoryController extends Controller
 {
     public function __construct(private readonly DocumentCategoryService $categories) {}
 
-    public function index(Request $request): AnonymousResourceCollection
+    public function index(ListDocumentCategoriesRequest $request): AnonymousResourceCollection
     {
         $categories = DocumentCategory::where('owner_guid', $request->user()->guid)
-            ->withCount('documents')
-            ->orderBy('name')
-            ->get();
+            ->withCount('documents');
 
-        return DocumentCategoryResource::collection($categories);
+        $search = $request->validated('q');
+        if ($search !== null && $search !== '') {
+            $pattern = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower($search)).'%';
+            $categories->whereRaw("LOWER(name) LIKE ? ESCAPE '!'", [$pattern]);
+        }
+
+        $paginated = $request->has('per_page');
+        $sortBy = $request->validated('sort_by', $paginated ? 'created_at' : 'name');
+        $direction = $request->validated('sort_direction', $sortBy === 'created_at' ? 'desc' : 'asc');
+        $categories->orderBy($sortBy === 'name' ? 'normalized_name' : $sortBy, $direction)->orderBy('id', $direction);
+
+        return DocumentCategoryResource::collection($paginated
+            ? $categories->paginate((int) $request->validated('per_page'))->withQueryString()
+            : $categories->get());
     }
 
     public function show(Request $request, string $category): DocumentCategoryResource

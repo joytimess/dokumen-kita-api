@@ -75,12 +75,11 @@ class OcrSpaceOcrClient
 
                 continue;
             }
-            if ($pageExitCode !== 1 || ! array_key_exists('ParsedText', $result)
-                || (! is_string($result['ParsedText']) && $result['ParsedText'] !== null)) {
+            if ($pageExitCode !== 1 || ! is_string($result['ParsedText'] ?? null)) {
                 $this->throwProviderError($response, is_array($result) ? $result : $data);
             }
 
-            $texts[] = $result['ParsedText'] ?? '';
+            $texts[] = $result['ParsedText'];
         }
 
         return $texts;
