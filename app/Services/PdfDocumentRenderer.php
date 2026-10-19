@@ -7,6 +7,7 @@ use App\Exceptions\ApiException;
 use App\Models\DocumentVersion;
 use App\Models\SignaturePlaceholder;
 use Dompdf\Dompdf;
+use Dompdf\FontMetrics;
 use Dompdf\Options;
 use Illuminate\Support\Facades\Storage;
 use setasign\Fpdi\Fpdi;
@@ -24,6 +25,8 @@ class PdfDocumentRenderer
     private const PAGE_MARGIN_MM = 20;
 
     private const DECORATED_PAGE_MARGIN_MM = 45;
+
+    private const DECORATION_MAX_HEIGHT_MM = 58;
 
     private const BODY_IMAGE_MAX_HEIGHT_MM = 220;
 
@@ -81,10 +84,11 @@ class PdfDocumentRenderer
         $options->set('isRemoteEnabled', false);
         $options->set('isPhpEnabled', false);
         $options->set('isJavascriptEnabled', false);
+        $options->set('chroot', [base_path()]);
         $options->set('defaultFont', 'DejaVu Sans');
         $pdf = new Dompdf($options);
         $pdf->setPaper('A4');
-        $pdf->loadHtml($this->html($editor, $version->letterhead !== null || $version->footer !== null), 'UTF-8');
+        $pdf->loadHtml($this->html($editor, $version, $pdf->getFontMetrics()), 'UTF-8');
         try {
             $pdf->render();
             $bytes = $pdf->output();
@@ -185,17 +189,25 @@ class PdfDocumentRenderer
     }
 
     /** @param array<string, mixed> $editor */
-    private function html(array $editor, bool $hasDecorations = false): string
+    private function html(array $editor, DocumentVersion $version, FontMetrics $fonts): string
     {
-        $margin = $hasDecorations ? self::DECORATED_PAGE_MARGIN_MM : self::PAGE_MARGIN_MM;
+        $margin = self::PAGE_MARGIN_MM;
+        foreach ([$version->letterhead, $version->footer] as $decoration) {
+            if ($decoration !== null) {
+                $width = $this->decorationWidth($decoration, self::PAGE_WIDTH_MM);
+                $height = $width * $decoration['height'] / $decoration['width'];
+                $margin = max($margin, self::DECORATED_PAGE_MARGIN_MM, $height + 15);
+            }
+        }
         $contentHeight = self::PAGE_HEIGHT_MM - 2 * $margin;
         $contentWidth = self::PAGE_WIDTH_MM - 2 * self::PAGE_SIDE_MARGIN_MM;
         $body = '';
         foreach ($editor['blocks'] as $block) {
             $data = $block['data'];
+            $alignment = isset($data['align']) ? ' style="text-align:'.$data['align'].'"' : '';
             $body .= match ($block['type']) {
-                'paragraph' => '<p>'.$data['text'].'</p>',
-                'header' => '<h'.$data['level'].'>'.$data['text'].'</h'.$data['level'].'>',
+                'paragraph' => '<p'.$alignment.'>'.$data['text'].'</p>',
+                'header' => '<h'.$data['level'].$alignment.'>'.$data['text'].'</h'.$data['level'].'>',
                 'list' => $this->listHtml($data['items'], $data['style']),
                 'table' => $this->tableHtml($data, $contentWidth, $contentHeight),
                 'image' => $this->imageHtml($data, $contentWidth, self::BODY_IMAGE_MAX_HEIGHT_MM, $contentHeight, self::BODY_FIGURE_MARGIN_PT)['html'],
@@ -204,11 +216,10 @@ class PdfDocumentRenderer
         }
 
         return '<!doctype html><html><head><meta charset="utf-8"><style>'
+            .$this->editorFontStyles($fonts)
             .'@page{size:A4 portrait;margin:'.$margin.'mm '.self::PAGE_SIDE_MARGIN_MM.'mm}'
-            .'body{margin:0;padding:0;font-family:DejaVu Sans,sans-serif;font-size:'.self::BODY_FONT_SIZE_PT.'pt;line-height:'.self::BODY_LINE_HEIGHT.';color:#111}'
-            .'[data-font-family="Arial"]{font-family:Helvetica,sans-serif}[data-font-family="Calibri"],[data-font-family="Aptos"]{font-family:DejaVu Sans,sans-serif}'
-            .'[data-font-family="Times New Roman"]{font-family:Times,serif}[data-font-family="Georgia"]{font-family:DejaVu Serif,serif}'
-            .'p{margin:0 0 '.self::PARAGRAPH_MARGIN_BOTTOM_PT.'pt}h1,h2,h3,h4,h5,h6{margin:12pt 0 7pt;line-height:'.self::BODY_LINE_HEIGHT.';page-break-after:avoid}'
+            .'body{margin:0;padding:0;font-family:DejaVu Sans,sans-serif;font-size:'.self::BODY_FONT_SIZE_PT.'pt;line-height:'.$this->editorLineHeight($fonts, 'DejaVu Sans').';color:#111}'
+            .'p{min-height:'.(self::BODY_FONT_SIZE_PT * self::BODY_LINE_HEIGHT).'pt;margin:0 0 '.self::PARAGRAPH_MARGIN_BOTTOM_PT.'pt;page-break-inside:avoid}h1,h2,h3,h4,h5,h6{margin:12pt 0 7pt;page-break-after:avoid}'
             .'h1{font-size:2em}h2{font-size:1.5em}h3{font-size:1.17em}h4{font-size:1em}h5{font-size:.83em}h6{font-size:.67em}'
             .'ul,ol{margin:11pt 0;padding-left:24px}ul{list-style-type:disc}ul ul{list-style-type:circle}ul ul ul{list-style-type:square}ol{list-style-type:decimal}ol ol{list-style-type:lower-alpha}ol ol ol{list-style-type:lower-roman}'
             .'hr.editor-delimiter{display:block;width:100%;height:0;border:0;border-top:1px solid #777;margin:10pt 0;page-break-inside:avoid}'
@@ -218,6 +229,27 @@ class PdfDocumentRenderer
             .'td p:last-child,th p:last-child{margin-bottom:0}td figure,th figure{margin:'.self::CELL_FIGURE_MARGIN_PT.'pt 0}td figure img,th figure img{max-height:'.self::CELL_IMAGE_MAX_HEIGHT_MM.'mm}'
             .'figcaption{font-size:'.self::CAPTION_FONT_PT.'pt;line-height:'.self::CAPTION_LINE_HEIGHT.';color:#555;text-align:center}li{margin-bottom:3pt}'
             .'</style></head><body>'.$body.'</body></html>';
+    }
+
+    private function editorLineHeight(FontMetrics $fonts, string $family): float
+    {
+        // Dompdf multiplies CSS line-height by font metric height; browsers use font size.
+        $font = $fonts->getFont($family, 'normal');
+
+        return self::BODY_FONT_SIZE_PT * self::BODY_LINE_HEIGHT / $fonts->getFontHeight($font, self::BODY_FONT_SIZE_PT);
+    }
+
+    private function editorFontStyles(FontMetrics $fonts): string
+    {
+        $css = '';
+        foreach (['Regular' => [400, 'normal'], 'Bold' => [700, 'normal'], 'Italic' => [400, 'italic'], 'BoldItalic' => [700, 'italic']] as $file => [$weight, $style]) {
+            $fonts->registerFont(['family' => 'DokumenCarlito', 'weight' => $weight, 'style' => $style], resource_path('fonts/Carlito-'.$file.'.ttf'));
+        }
+        foreach (['Arial' => 'Helvetica', 'Calibri' => 'DokumenCarlito', 'Aptos' => 'DokumenCarlito', 'Times New Roman' => 'Times', 'Georgia' => 'DejaVu Serif'] as $label => $family) {
+            $css .= '[data-font-family="'.$label.'"]{font-family:"'.$family.'";line-height:'.$this->editorLineHeight($fonts, $family).'}';
+        }
+
+        return $css;
     }
 
     /** @param list<mixed> $items */
@@ -484,6 +516,11 @@ class PdfDocumentRenderer
         return $pages;
     }
 
+    private function decorationWidth(array $decoration, float $pageWidth): float
+    {
+        return min($pageWidth - 2 * self::PAGE_SIDE_MARGIN_MM, self::DECORATION_MAX_HEIGHT_MM * $decoration['width'] / $decoration['height']);
+    }
+
     private function decorate(string $bytes, int $pages, DocumentVersion $version): string
     {
         foreach (['letterhead', 'footer'] as $kind) {
@@ -527,7 +564,7 @@ class PdfDocumentRenderer
                     if ($decoration === null || ! $this->selectedPage($decoration['pages'], $page)) {
                         continue;
                     }
-                    $width = min($size['width'] - 36, $decoration['width'] * 25.4 / 96, 30 * $decoration['width'] / $decoration['height']);
+                    $width = $this->decorationWidth($decoration, $size['width']);
                     $height = $width * $decoration['height'] / $decoration['width'];
                     $x = ($size['width'] - $width) / 2;
                     $y = $kind === 'letterhead' ? 7 : $size['height'] - 7 - $height;

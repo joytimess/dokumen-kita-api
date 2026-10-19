@@ -20,6 +20,44 @@ class PdfRendererWorkflowTest extends TestCase
 {
     use RefreshDatabase, SignatureFixtures;
 
+    public function test_empty_paragraphs_preserve_signature_space_from_editor(): void
+    {
+        Storage::fake('local');
+        config(['documents.disk' => 'local']);
+        foreach (['', '<span data-font-family="Aptos"></span>'] as $emptyText) {
+            $version = $this->draft(User::factory()->create(), ['editor_data_json' => ['blocks' => [
+                ['type' => 'paragraph', 'data' => ['text' => 'Hormat saya,']],
+                ...array_fill(0, 3, ['type' => 'paragraph', 'data' => ['text' => $emptyText]]),
+                ['type' => 'paragraph', 'data' => ['text' => 'Nama penandatangan']],
+            ]]]);
+            $preview = $this->app->make(PdfDocumentRenderer::class)->preview($version);
+            $lines = (new Parser)->parseContent($preview['bytes'])->getPages()[0]->getDataTm();
+            $closing = collect($lines)->first(fn ($line) => str_contains($line[1], 'Hormat saya,'));
+            $name = collect($lines)->first(fn ($line) => str_contains($line[1], 'Nama penandatangan'));
+            $this->assertNotNull($closing);
+            $this->assertNotNull($name);
+            $this->assertEqualsWithDelta(4 * (16.5 + 10), (float) $closing[0][5] - (float) $name[0][5], 0.01);
+        }
+    }
+
+    public function test_aptos_line_spacing_and_paragraph_alignment_match_editor(): void
+    {
+        Storage::fake('local');
+        config(['documents.disk' => 'local']);
+        $version = $this->draft(User::factory()->create(), ['editor_data_json' => ['blocks' => [
+            ['type' => 'paragraph', 'data' => ['text' => '<span data-font-family="Aptos">'.str_repeat('Lorem ipsum dolor sit amet consectetur. ', 20).'</span>']],
+            ['type' => 'paragraph', 'data' => ['text' => 'RIGHT-ALIGNED', 'align' => 'right']],
+        ]]]);
+        $preview = $this->app->make(PdfDocumentRenderer::class)->preview($version);
+        $document = (new Parser)->parseContent($preview['bytes']);
+        $lines = $document->getPages()[0]->getDataTm();
+        $this->assertEqualsWithDelta(16.5, (float) $lines[0][0][5] - (float) $lines[1][0][5], 0.01);
+        $right = collect($lines)->first(fn ($line) => str_contains($line[1], 'RIGHT-ALIGNED'));
+        $this->assertNotNull($right);
+        $this->assertGreaterThan(300, (float) $right[0][4]);
+        $this->assertTrue(collect($document->getFonts())->contains(fn ($font) => str_contains($font->getName(), 'Carlito')));
+    }
+
     public function test_editor_preview_renders_only_supported_font_family_mappings(): void
     {
         $cellParagraph = [

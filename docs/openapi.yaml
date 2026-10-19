@@ -554,13 +554,14 @@ paths:
     get:
       operationId: listOwnSignatureAssets
       summary: Library aset tanda tangan milik sendiri
-      description: Pagination 15 item/halaman, diurutkan id descending secara stabil.
+      description: Pagination 15 item/halaman secara default (1–100 dapat diminta), diurutkan id descending secara stabil.
       parameters:
         - name: page
           in: query
           schema:
             type: integer
             minimum: 1
+        - $ref: '#/components/parameters/PerPage'
       responses:
         '200':
           description: Aset milik akun; tidak memuat object key privat.
@@ -624,6 +625,26 @@ paths:
         '422':
           $ref: '#/components/responses/Error'
         '429':
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteUnusedSignatureAsset
+      summary: Hapus aset tanda tangan milik sendiri yang belum digunakan
+      description: Aset yang sudah direferensikan oleh tanda tangan tersimpan tidak dapat dihapus.
+      parameters:
+        - name: assetGuid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Aset dan file privat berhasil dihapus.
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
           $ref: '#/components/responses/Error'
   /signature-assets/{assetGuid}/image:
     get:

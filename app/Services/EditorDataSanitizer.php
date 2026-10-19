@@ -70,8 +70,8 @@ class EditorDataSanitizer
 
         $data = $block['data'];
         $allowedKeys = match ($type) {
-            'paragraph' => ['text'],
-            'header' => ['text', 'level'],
+            'paragraph' => ['text', 'align'],
+            'header' => ['text', 'level', 'align'],
             'list' => ['style', 'items'],
             'table' => ['withHeadings', 'showBorders', 'rowMinHeights', 'content'],
             'image' => ['file', 'caption'],
@@ -84,10 +84,11 @@ class EditorDataSanitizer
         }
 
         return ['type' => $type, 'data' => match ($type) {
-            'paragraph' => ['text' => $this->text($data['text'] ?? '', "$path.data.text")],
+            'paragraph' => ['text' => $this->text($data['text'] ?? '', "$path.data.text"), ...$this->textAlignment($data, $path)],
             'header' => [
                 'text' => $this->text($data['text'] ?? '', "$path.data.text"),
                 'level' => min(6, max(1, (int) ($data['level'] ?? 2))),
+                ...$this->textAlignment($data, $path),
             ],
             'list' => $this->sanitizeList($data, $path),
             'table' => $this->sanitizeTable($data, $path),
@@ -452,6 +453,18 @@ class EditorDataSanitizer
         }
 
         return ['file' => ['url' => $url], 'caption' => $this->text($data['caption'] ?? '', "$imagePath.caption")];
+    }
+
+    private function textAlignment(array $data, string $path): array
+    {
+        if (! array_key_exists('align', $data)) {
+            return [];
+        }
+        if (! in_array($data['align'], ['left', 'center', 'right', 'justify'], true)) {
+            $this->fail("$path.data.align", 'Perataan paragraf tidak didukung.');
+        }
+
+        return ['align' => $data['align']];
     }
 
     private function text(mixed $value, string $path): string

@@ -26,6 +26,28 @@ class DocumentApiTest extends TestCase
         return DocumentVersion::factory()->create(['document_guid' => $document->guid] + $versionAttributes);
     }
 
+    public function test_paragraph_alignment_is_saved_and_invalid_alignment_is_rejected(): void
+    {
+        $owner = User::factory()->create();
+        $version = $this->ownedDraft($owner);
+        $url = "/api/v1/versions/{$version->guid}";
+        $this->actingAs($owner)->patchJson($url, [
+            'editor_revision' => 1,
+            'editor_data' => ['blocks' => [
+                ['type' => 'paragraph', 'data' => ['text' => 'Isi', 'align' => 'justify']],
+                ['type' => 'header', 'data' => ['text' => 'Judul', 'level' => 2, 'align' => 'center']],
+            ]],
+        ])->assertOk();
+        $this->getJson("/api/v1/documents/{$version->document_guid}")
+            ->assertOk()->assertJsonPath('data.current_version.editor_data.blocks.0.data.align', 'justify')
+            ->assertJsonPath('data.current_version.editor_data.blocks.1.data.align', 'center');
+        $this->patchJson($url, [
+            'editor_revision' => $version->fresh()->editor_revision,
+            'editor_data' => ['blocks' => [['type' => 'paragraph', 'data' => ['text' => 'Isi', 'align' => 'right;color:red']]]],
+        ])->assertUnprocessable();
+        $this->assertSame('justify', $version->fresh()->editor_data_json['blocks'][0]['data']['align']);
+    }
+
     private function pdf(string $name = 'a.pdf', string $extra = ''): File
     {
         return UploadedFileFactory::content($name, "%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<$extra>>\n%%EOF");

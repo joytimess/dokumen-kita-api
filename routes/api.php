@@ -126,6 +126,7 @@ Route::prefix('v1')->group(function (): void {
         Route::prefix('signature-assets')->group(function (): void {
             Route::get('/', [SignatureAssetController::class, 'index']);
             Route::post('/', [SignatureAssetController::class, 'store'])->middleware('throttle:uploads');
+            Route::delete('{asset}', [SignatureAssetController::class, 'destroy']);
             Route::get('{asset}/image', [SignatureAssetController::class, 'image'])->name('signature-assets.image');
         });
 

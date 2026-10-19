@@ -89,6 +89,26 @@ class SignatureAssetApiTest extends TestCase
         $this->getJson("/api/v1/signature-assets/{$otherAsset->guid}/image")->assertNotFound();
     }
 
+    public function test_asset_library_respects_requested_page_size_and_keeps_default(): void
+    {
+        Storage::fake('local');
+        $owner = User::factory()->create();
+        for ($index = 0; $index < 7; $index++) {
+            $this->asset($owner);
+        }
+
+        $this->actingAs($owner)->getJson('/api/v1/signature-assets?per_page=6')
+            ->assertOk()->assertJsonCount(6, 'data')->assertJsonPath('meta.per_page', 6)
+            ->assertJsonPath('meta.total', 7)->assertJsonPath('meta.last_page', 2);
+
+        $this->getJson('/api/v1/signature-assets?page=2&per_page=6')
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('meta.current_page', 2)
+            ->assertJsonPath('meta.per_page', 6);
+
+        $this->getJson('/api/v1/signature-assets')
+            ->assertOk()->assertJsonCount(7, 'data')->assertJsonPath('meta.per_page', 15);
+    }
+
     public function test_guests_cannot_upload_list_or_view_assets(): void
     {
         Storage::fake('local');

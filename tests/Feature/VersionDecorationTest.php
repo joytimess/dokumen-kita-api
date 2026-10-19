@@ -126,6 +126,45 @@ class VersionDecorationTest extends TestCase
         $this->assertStringStartsWith('%PDF-', $this->app->make(PdfDocumentRenderer::class)->finalize($version->load('assignments')));
     }
 
+    public function test_standard_letterhead_and_footer_fill_content_width_and_final_pdf_reuses_preview(): void
+    {
+        Storage::fake('local');
+        config(['documents.disk' => 'local']);
+        $owner = User::factory()->create();
+        $version = $this->draft($owner, ['editor_data_json' => ['blocks' => [
+            ['type' => 'paragraph', 'data' => ['text' => 'Body below letterhead']],
+        ]]]);
+        foreach (['letterhead', 'footer'] as $index => $kind) {
+            $this->actingAs($owner)->post("/api/v1/versions/{$version->guid}/decorations/{$kind}", [
+                'editor_revision' => $index + 1,
+                'file' => UploadedFile::fake()->image($kind.'.png', 1200, 400),
+            ], ['Accept' => 'application/json'])->assertOk();
+        }
+        $this->postJson("/api/v1/versions/{$version->guid}/preview", ['source' => 'editor'])->assertAccepted();
+        $renderer = $this->app->make(PdfDocumentRenderer::class);
+        $this->app->make(DocumentPipelineService::class)->generatePreview(
+            $version->guid, $version->fresh()->preview_generation, $renderer,
+        );
+        $version->refresh();
+        $bytes = Storage::disk('local')->get($version->preview_pdf_path);
+        $document = (new Parser)->parseContent($bytes);
+        $this->assertSame(1, $version->preview_page_count);
+        $commands = $document->getPages()[0]->get('Contents')->getContent();
+        preg_match_all('/([\d.]+) 0 0 ([\d.]+) ([\d.]+) ([\d.]+) cm \/I\d+ Do/', $commands, $images);
+        $this->assertCount(2, $images[0], $commands);
+        foreach ([0, 1] as $index) {
+            $this->assertEqualsWithDelta(174 * 72 / 25.4, (float) $images[1][$index], 0.02);
+            $this->assertEqualsWithDelta(58 * 72 / 25.4, (float) $images[2][$index], 0.02);
+            $this->assertEqualsWithDelta(18 * 72 / 25.4, (float) $images[3][$index], 0.02);
+        }
+        $this->assertEqualsWithDelta((297 - 7 - 58) * 72 / 25.4, (float) $images[4][0], 0.02);
+        $this->assertEqualsWithDelta(7 * 72 / 25.4, (float) $images[4][1], 0.02);
+        $this->assertStringContainsString('Body below letterhead', $document->getText());
+        Storage::disk('local')->delete([$version->letterhead['path'], $version->footer['path']]);
+        $final = $renderer->finalize($version->load('assignments'));
+        $this->assertStringContainsString('Body below letterhead', (new Parser)->parseContent($final)->getText());
+    }
+
     public function test_out_of_range_page_selection_fails_preview_with_actionable_message(): void
     {
         Storage::fake('local');

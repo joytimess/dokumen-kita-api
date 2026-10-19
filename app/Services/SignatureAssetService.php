@@ -3,9 +3,11 @@
 namespace App\Services;
 
 use App\Exceptions\ApiException;
+use App\Models\Signature;
 use App\Models\SignatureAsset;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -13,6 +15,22 @@ use Throwable;
 
 class SignatureAssetService
 {
+    public function delete(SignatureAsset $asset): void
+    {
+        DB::transaction(function () use ($asset): void {
+            $locked = SignatureAsset::where('guid', $asset->guid)->lockForUpdate()->firstOrFail();
+            if (Signature::where('asset_guid', $locked->guid)->exists()) {
+                throw ApiException::conflict('SIGNATURE_ASSET_IN_USE', 'Aset tanda tangan sudah digunakan dan tidak dapat dihapus.');
+            }
+
+            $locked->delete();
+            $disk = Storage::disk(config('documents.disk'));
+            if ($disk->exists($locked->file_path) && ! $disk->delete($locked->file_path)) {
+                throw new RuntimeException('Unable to delete signature asset.');
+            }
+        }, attempts: 3);
+    }
+
     public function store(User $actor, UploadedFile $file, string $sourceType): SignatureAsset
     {
         $bytes = file_get_contents($file->getRealPath());

@@ -12,4 +12,9 @@ class SignatureAssetPolicy
     {
         return $asset->user_guid === $user->guid ? Response::allow() : Response::denyAsNotFound();
     }
+
+    public function delete(User $user, SignatureAsset $asset): Response
+    {
+        return $asset->user_guid === $user->guid ? Response::allow() : Response::denyAsNotFound();
+    }
 }
