@@ -38,6 +38,14 @@ class DocumentWorkflowNotification extends Notification
         if ($this->invitationUrl !== null) {
             $mail->action('Buka undangan', $this->invitationUrl)
                 ->line('Gunakan akun dengan email yang menerima undangan ini dan verifikasi email sebelum melanjutkan.');
+
+            if (in_array($this->type, ['invitation_ready', 'invitation_waiting'], true)) {
+                $mail->view(['html' => 'emails.signature-invitation', 'text' => 'emails.text.signature-invitation'], [
+                    'documentTitle' => $this->title,
+                    'versionNumber' => $this->versionNumber,
+                    'description' => $description,
+                ]);
+            }
         }
 
         if (in_array($this->type, ['revision_requested', 'version_rejected'], true) && $this->reason !== null) {

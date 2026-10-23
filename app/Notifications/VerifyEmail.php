@@ -5,6 +5,7 @@ namespace App\Notifications;
 use Illuminate\Auth\Notifications\VerifyEmail as BaseVerifyEmail;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Notifications\Messages\MailMessage;
 
 class VerifyEmail extends BaseVerifyEmail implements ShouldQueue
 {
@@ -20,5 +21,17 @@ class VerifyEmail extends BaseVerifyEmail implements ShouldQueue
     public function __construct()
     {
         $this->afterCommit();
+    }
+
+    protected function buildMailMessage($url): MailMessage
+    {
+        $minutes = (int) config('auth.verification.expire', 60);
+
+        return (new MailMessage)
+            ->subject('Verifikasi Alamat Email — DokumenKita')
+            ->action('Verifikasi Alamat Email', $url)
+            ->view(['html' => 'emails.verification', 'text' => 'emails.text.verification'], [
+                'expiresIn' => $minutes % 60 === 0 ? intdiv($minutes, 60).' jam' : $minutes.' menit',
+            ]);
     }
 }

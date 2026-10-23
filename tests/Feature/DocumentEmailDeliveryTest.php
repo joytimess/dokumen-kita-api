@@ -13,9 +13,11 @@ use App\Services\InvitationService;
 use App\Services\PublishService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Mail\Events\MessageSending;
+use Illuminate\Mail\Events\MessageSent;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -44,6 +46,52 @@ class DocumentEmailDeliveryTest extends TestCase
         Notification::assertCount(1);
         $this->assertDatabaseHas('email_notifications', ['guid' => $email->guid, 'status' => 'sent', 'attempt_count' => 1, 'payload' => null]);
         $this->assertNotNull($email->fresh()->sent_at);
+    }
+
+    /** @return array<string, array{bool}> */
+    public static function recipientAccounts(): array
+    {
+        return ['new account' => [false], 'existing account' => [true]];
+    }
+
+    #[DataProvider('recipientAccounts')]
+    public function test_outbox_delivers_the_rendered_invitation_without_changing_its_token_or_signing_order(bool $registered): void
+    {
+        $owner = User::factory()->create();
+        $version = $this->preparedDraft($owner);
+        $title = 'Perjanjian <Usaha> & "Mitra"';
+        $version->document->update(['title' => $title]);
+        $this->app->make(PublishService::class)->publish($owner, $version);
+        $email = EmailNotification::firstOrFail();
+        parse_str(parse_url($email->payload['invitation_url'], PHP_URL_QUERY), $query);
+        $token = $query['token'];
+        $invitation = $email->assignment->invitationLinks()->firstOrFail();
+        if ($registered) {
+            User::factory()->create(['email' => $email->recipient_email]);
+        }
+        $expectedUrl = rtrim(config('app.frontend_url'), '/').($registered ? '/login' : '/register')
+            .'?'.http_build_query(['invitation_token' => $token]);
+        $messages = [];
+        Event::listen(MessageSent::class, function (MessageSent $event) use (&$messages): void {
+            $messages[] = $event->message;
+        });
+
+        $job = new DeliverDocumentEmail($email->guid);
+        $job->handle($this->app->make(DocumentEmailService::class));
+        $job->handle($this->app->make(DocumentEmailService::class));
+
+        $this->assertCount(1, $messages);
+        $html = $messages[0]->getHtmlBody();
+        $this->assertSame($email->recipient_email, $messages[0]->getTo()[0]->getAddress());
+        $this->assertSame(2, substr_count($html, 'href="'.e($expectedUrl).'"'));
+        $this->assertStringContainsString(e($title), $html);
+        $this->assertStringContainsString($expectedUrl, $messages[0]->getTextBody());
+        $this->assertStringContainsString($title, $messages[0]->getTextBody());
+        $this->assertSame(hash('sha256', $token), $invitation->fresh()->token_hash);
+        $this->assertNull($invitation->fresh()->revoked_at);
+        $this->assertSame('ready', $email->assignment->fresh()->status);
+        $this->assertSame('waiting', $version->assignments()->where('sequence_number', 2)->firstOrFail()->status);
+        $this->assertDatabaseHas('email_notifications', ['guid' => $email->guid, 'status' => 'sent', 'attempt_count' => 1, 'payload' => null]);
     }
 
     public function test_rotated_and_expired_invitations_are_never_delivered(): void
