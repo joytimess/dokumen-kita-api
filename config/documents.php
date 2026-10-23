@@ -30,6 +30,9 @@ return [
         'max_width' => 2048,
         'max_height' => 1024,
         'min_ink_pixels' => 10,
+        'max_pixels' => 2_097_152,
+        'classifier' => env('SIGNATURE_IMAGE_CLASSIFIER', 'unconfigured'),
+        'classification_per_minute' => min(20, max(1, (int) env('SIGNATURE_CLASSIFICATION_PER_MINUTE', 5))),
     ],
 
     'import' => [

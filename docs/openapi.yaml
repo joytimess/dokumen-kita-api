@@ -601,6 +601,14 @@ paths:
         Gambar putih, transparan kosong, dan warna solid ditolak. Normalisasi PNG
         membuang metadata input dan menyimpan objek privat baru dengan hash.
         source_type drawn untuk canvas baru; upload untuk gambar unggahan.
+        Kedua sumber wajib lolos klasifikasi signature; source_type tidak menjadi bypass.
+        Budget decoding maksimal 2097152 piksel. non_signature dan uncertain ditolak
+        dengan 422 dan error.errors.file; provider belum dikonfigurasi/gagal memberi 503.
+        Mode unconfigured menolak semua bitmap baru tanpa menyimpan aset.
+        Driver groq mengirim PNG ternormalisasi sebagai base64 ke GroqCloud Vision;
+        hasil signature dapat disimpan, non_signature/uncertain ditolak, error/timeout
+        dan respons malformed menjadi 503. Tidak ada bypass untuk drawn atau retry otomatis.
+        Rate limit klasifikasi default 5 request/menit/user, selain throttle uploads.
         Aset tersimpan digunakan ulang melalui asset_guid saat submit signature,
         dengan confirmation baru pada setiap assignment. Tidak ada endpoint edit.
       requestBody:
@@ -626,6 +634,12 @@ paths:
           $ref: '#/components/responses/Error'
         '429':
           $ref: '#/components/responses/Error'
+        '503':
+          description: Pemrosesan gambar atau classifier tidak tersedia; aset tidak disimpan.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
     delete:
       operationId: deleteUnusedSignatureAsset
       summary: Hapus aset tanda tangan milik sendiri yang belum digunakan

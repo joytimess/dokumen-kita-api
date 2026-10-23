@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Contracts\SignatureImageClassifierInterface;
+use App\Enums\SignatureImageClassification;
 use App\Models\DocumentVersion;
 use App\Models\SignatureAsset;
 use App\Models\SignaturePlaceholder;
@@ -62,6 +64,10 @@ trait SignatureFixtures
 
     private function asset(User $owner): SignatureAsset
     {
+        // Workflow fixtures use deterministic classification, not a live semantic provider.
+        $this->mock(SignatureImageClassifierInterface::class)
+            ->shouldReceive('classify')->andReturn(SignatureImageClassification::Signature);
+
         return $this->app->make(SignatureAssetService::class)->store($owner, $this->signatureImage(), 'drawn');
     }
 }

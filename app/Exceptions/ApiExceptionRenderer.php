@@ -25,7 +25,7 @@ class ApiExceptionRenderer
 
         $exceptions->render(fn (ValidationException $e, Request $request) => $this->respond($request, 422, 'VALIDATION_FAILED', 'Data yang dikirim tidak valid.', $e->errors()));
         $exceptions->render(fn (AuthenticationException $e, Request $request) => $this->respond($request, 401, 'UNAUTHENTICATED', 'Sesi tidak ditemukan atau sudah berakhir.'));
-        $exceptions->render(fn (ApiException $e, Request $request) => $this->respond($request, $e->status, $e->errorCode, $e->getMessage()));
+        $exceptions->render(fn (ApiException $e, Request $request) => $this->respond($request, $e->status, $e->errorCode, $e->getMessage(), $e->errors));
         $exceptions->render(fn (AuthorizationException $e, Request $request) => $e->status() === 404
             ? $this->respond($request, 404, 'NOT_FOUND', 'Data tidak ditemukan.')
             : $this->respond($request, 403, 'FORBIDDEN', 'Anda tidak berhak melakukan tindakan ini.'));

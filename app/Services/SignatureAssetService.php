@@ -15,6 +15,8 @@ use Throwable;
 
 class SignatureAssetService
 {
+    public function __construct(private readonly SignatureImageClassificationService $classification) {}
+
     public function delete(SignatureAsset $asset): void
     {
         DB::transaction(function () use ($asset): void {
@@ -33,17 +35,42 @@ class SignatureAssetService
 
     public function store(User $actor, UploadedFile $file, string $sourceType): SignatureAsset
     {
-        $bytes = file_get_contents($file->getRealPath());
-        $info = @getimagesizefromstring($bytes);
-        if ($info === false || ! in_array($info[2], [IMAGETYPE_PNG, IMAGETYPE_JPEG, IMAGETYPE_WEBP], true)
-            || $info[0] > config('documents.signature_assets.max_width')
-            || $info[1] > config('documents.signature_assets.max_height')) {
-            throw new ApiException(422, 'SIGNATURE_IMAGE_INVALID', 'Gambar tanda tangan tidak valid.');
+        $maxBytes = (int) config('documents.signature_assets.max_kilobytes') * 1024;
+        $bytes = $file->isValid() ? file_get_contents($file->getRealPath(), false, null, 0, $maxBytes + 1) : false;
+        if ($bytes === false || strlen($bytes) > $maxBytes || ! in_array($sourceType, ['drawn', 'upload'], true)) {
+            throw new ApiException(422, 'SIGNATURE_IMAGE_INVALID', 'Gambar tanda tangan tidak valid.', ['file' => ['Berkas gambar tidak valid atau terlalu besar.']]);
         }
 
-        $image = @imagecreatefromstring($bytes);
-        if ($image === false) {
-            throw new ApiException(422, 'SIGNATURE_IMAGE_INVALID', 'Gambar tanda tangan tidak dapat dibaca.');
+        $info = @getimagesizefromstring($bytes);
+        if ($info === false || ! in_array($info[2], [IMAGETYPE_PNG, IMAGETYPE_JPEG, IMAGETYPE_WEBP], true)
+            || $info[0] < 16 || $info[1] < 16
+            || $info[0] > config('documents.signature_assets.max_width')
+            || $info[1] > config('documents.signature_assets.max_height')
+            || config('documents.signature_assets.max_pixels') < $info[0] * $info[1]) {
+            throw new ApiException(422, 'SIGNATURE_IMAGE_INVALID', 'Gambar tanda tangan tidak valid.', ['file' => ['Format atau dimensi gambar tidak didukung.']]);
+        }
+
+        if (! function_exists('imagecreatefromstring')) {
+            throw new ApiException(503, 'SIGNATURE_IMAGE_PROCESSING_UNAVAILABLE', 'Layanan pemrosesan gambar tanda tangan tidak tersedia.');
+        }
+
+        // Some decoders return partial images on warnings; do not accept those as valid files.
+        $decodeWarning = false;
+        set_error_handler(function () use (&$decodeWarning): bool {
+            $decodeWarning = true;
+
+            return true;
+        });
+        try {
+            $image = imagecreatefromstring($bytes);
+        } finally {
+            restore_error_handler();
+        }
+        if ($image === false || $decodeWarning) {
+            if ($image !== false) {
+                imagedestroy($image);
+            }
+            throw new ApiException(422, 'SIGNATURE_IMAGE_INVALID', 'Gambar tanda tangan tidak dapat dibaca.', ['file' => ['Berkas gambar rusak atau tidak didukung.']]);
         }
 
         try {
@@ -53,7 +80,9 @@ class SignatureAssetService
             imagesavealpha($image, true);
             ob_start();
             try {
-                imagepng($image);
+                if (! imagepng($image)) {
+                    throw new RuntimeException('Unable to normalize signature image.');
+                }
                 $normalized = ob_get_contents();
             } finally {
                 ob_end_clean();
@@ -61,6 +90,9 @@ class SignatureAssetService
         } finally {
             imagedestroy($image);
         }
+
+        // source_type is client-controlled; drawn bitmaps need the same verification as uploads.
+        $this->classification->assertSignature($normalized);
 
         $disk = Storage::disk(config('documents.disk'));
         $path = 'signature-assets/'.$actor->guid.'/'.Str::random(40).'.png';
@@ -130,7 +162,7 @@ class SignatureAssetService
             }
         }
         if ($darkPixels < config('documents.signature_assets.min_ink_pixels') || $maximum - $minimum < 15) {
-            throw new ApiException(422, 'SIGNATURE_IMAGE_EMPTY', 'Gambar tanda tangan kosong atau tidak memiliki coretan yang terlihat.');
+            throw new ApiException(422, 'SIGNATURE_IMAGE_EMPTY', 'Gambar tanda tangan kosong atau tidak memiliki coretan yang terlihat.', ['file' => ['Gambar harus memiliki coretan yang terlihat.']]);
         }
     }
 }

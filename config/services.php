@@ -39,6 +39,13 @@ return [
         ],
     ],
 
+    'groq' => [
+        'api_key' => env('GROQ_API_KEY'),
+        'signature_model' => env('GROQ_SIGNATURE_MODEL', 'qwen/qwen3.8-27b'),
+        'connect_timeout' => min(10, max(1, (int) env('GROQ_CONNECT_TIMEOUT', 3))),
+        'timeout' => min(60, max(1, (int) env('GROQ_TIMEOUT', 15))),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

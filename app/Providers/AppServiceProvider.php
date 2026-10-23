@@ -2,9 +2,12 @@
 
 namespace App\Providers;
 
+use App\Contracts\SignatureImageClassifierInterface;
 use App\Models\SignerAssignment;
 use App\Models\User;
 use App\Services\GoogleOAuthProvider;
+use App\Services\GroqSignatureImageClassifier;
+use App\Services\UnconfiguredSignatureImageClassifier;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Foundation\Application;
@@ -22,7 +25,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Unknown driver names must also fail closed.
+        $this->app->bind(SignatureImageClassifierInterface::class, fn () => match (config('documents.signature_assets.classifier')) {
+            'groq' => new GroqSignatureImageClassifier,
+            default => new UnconfiguredSignatureImageClassifier,
+        });
     }
 
     /**
@@ -41,6 +48,7 @@ class AppServiceProvider extends ServiceProvider
     {
         RateLimiter::for('auth-login', fn (Request $request) => Limit::perMinute(5)->by(Str::lower((string) $request->input('email')).'|'.$request->ip()));
         RateLimiter::for('uploads', fn (Request $request) => Limit::perMinute(20)->by((string) $request->user()?->guid));
+        RateLimiter::for('signature-classification', fn (Request $request) => Limit::perMinute(config('documents.signature_assets.classification_per_minute'))->by('signature-classification:'.$request->user()?->guid));
         RateLimiter::for('auth-register', fn (Request $request) => Limit::perMinute(10)->by((string) $request->ip()));
         RateLimiter::for('password-forgot', function (Request $request): array {
             $emailKey = hash('sha256', Str::lower(trim((string) $request->input('email'))));

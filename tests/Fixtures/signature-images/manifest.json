@@ -1,0 +1,11 @@
+[
+  {"id":"cursive","file":"cursive.jpg","expected":"signature"},
+  {"id":"initials-crop","file":"initials.png","expected":"signature"},
+  {"id":"transparent","file":"transparent.png","expected":"signature"},
+  {"id":"paper","file":"paper.png","expected":"signature"},
+  {"id":"cartoon-penguin","file":"penguin.png","expected":"non_signature"},
+  {"id":"animal-photo","file":"animal-photo.jpg","expected":"non_signature"},
+  {"id":"meme","file":"meme.png","expected":"non_signature"},
+  {"id":"logo","file":"logo.png","expected":"non_signature"},
+  {"id":"screenshot-like","file":"screenshot.png","expected":"non_signature"}
+]

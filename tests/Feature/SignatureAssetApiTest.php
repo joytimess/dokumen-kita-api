@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Contracts\SignatureImageClassifierInterface;
+use App\Enums\SignatureImageClassification;
 use App\Models\SignatureAsset;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -24,6 +26,7 @@ class SignatureAssetApiTest extends TestCase
     {
         Storage::fake('local');
         Storage::fake('public');
+        $this->mock(SignatureImageClassifierInterface::class)->shouldReceive('classify')->once()->andReturn(SignatureImageClassification::Signature);
         $owner = User::factory()->create();
 
         $response = $this->actingAs($owner)->postJson('/api/v1/signature-assets', ['file' => $this->signatureImage('ink', $format), 'source_type' => $source])
@@ -59,6 +62,7 @@ class SignatureAssetApiTest extends TestCase
     public function test_transparent_background_with_ink_is_accepted(): void
     {
         Storage::fake('local');
+        $this->mock(SignatureImageClassifierInterface::class)->shouldReceive('classify')->once()->andReturn(SignatureImageClassification::Signature);
         $this->actingAs(User::factory()->create())->postJson('/api/v1/signature-assets', ['file' => $this->signatureImage('transparent-ink'), 'source_type' => 'drawn'])
             ->assertCreated();
         $this->assertDatabaseCount('signature_assets', 1);
@@ -117,5 +121,19 @@ class SignatureAssetApiTest extends TestCase
         $this->postJson('/api/v1/signature-assets', [])->assertUnauthorized();
         $this->getJson('/api/v1/signature-assets')->assertUnauthorized();
         $this->getJson("/api/v1/signature-assets/{$asset->guid}/image")->assertUnauthorized();
+    }
+
+    public function test_only_owner_can_delete_an_unused_asset_without_reclassification(): void
+    {
+        Storage::fake('local');
+        $owner = User::factory()->create();
+        $asset = $this->asset($owner);
+        $this->mock(SignatureImageClassifierInterface::class)->shouldNotReceive('classify');
+
+        $this->actingAs(User::factory()->create())->deleteJson('/api/v1/signature-assets/'.$asset->guid)->assertNotFound();
+        Storage::disk('local')->assertExists($asset->file_path);
+        $this->actingAs($owner)->deleteJson('/api/v1/signature-assets/'.$asset->guid)->assertNoContent();
+        Storage::disk('local')->assertMissing($asset->file_path);
+        $this->assertDatabaseMissing('signature_assets', ['guid' => $asset->guid]);
     }
 }
