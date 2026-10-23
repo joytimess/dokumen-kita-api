@@ -17,8 +17,7 @@ class UploadProfilePhotoRequest extends FormRequest
         return [
             'photo' => [
                 'required', 'image', 'mimes:jpg,jpeg,png,webp',
-                'max:'.config('documents.signature_assets.max_kilobytes'),
-                'dimensions:max_width='.config('documents.signature_assets.max_width').',max_height='.config('documents.signature_assets.max_height'),
+                'max:8192',
             ],
         ];
     }

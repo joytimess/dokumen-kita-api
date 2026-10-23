@@ -33,10 +33,8 @@ class ProfileService
         $image = $contents === false ? false : @getimagesizefromstring($contents);
         $types = [IMAGETYPE_JPEG => 'jpg', IMAGETYPE_PNG => 'png', IMAGETYPE_WEBP => 'webp'];
 
-        if ($image === false || ! isset($types[$image[2]])
-            || $image[0] > config('documents.signature_assets.max_width')
-            || $image[1] > config('documents.signature_assets.max_height')) {
-            throw ValidationException::withMessages(['photo' => ['Foto harus berupa JPG, PNG, atau WebP yang valid dengan ukuran sesuai batas.']]);
+        if ($image === false || ! isset($types[$image[2]])) {
+            throw ValidationException::withMessages(['photo' => ['Foto harus berupa JPG, PNG, atau WebP yang valid.']]);
         }
 
         $disk = Storage::disk(config('documents.disk'));

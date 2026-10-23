@@ -75,10 +75,98 @@ class ProfileApiTest extends TestCase
 
         $this->actingAs($user)->post('/api/v1/me/photo', [
             'photo' => UploadedFile::fake()->createWithContent('invalid.png', 'not an image'),
-        ])->assertUnprocessable();
+        ])->assertUnprocessable()->assertJsonPath('error.code', 'VALIDATION_FAILED')
+            ->assertJsonStructure(['error' => ['errors' => ['photo']], 'meta' => ['request_id']]);
 
         $this->assertNull($user->fresh()->profile_photo_path);
         $this->assertSame([], Storage::disk('local')->allFiles());
+    }
+
+    public function test_profile_photo_accepts_allowed_formats_and_unrestricted_dimensions(): void
+    {
+        Storage::fake('local');
+        config(['documents.disk' => 'local']);
+        $user = User::factory()->create();
+
+        foreach ([['jpg', 1, 1], ['jpeg', 3000, 20], ['png', 20, 3000], ['webp', 120, 120]] as [$format, $width, $height]) {
+            $oldPath = $user->fresh()->profile_photo_path;
+            $this->actingAs($user)->post('/api/v1/me/photo', [
+                'photo' => UploadedFile::fake()->image('avatar.'.$format, $width, $height),
+            ])->assertOk()->assertJsonPath('data.guid', $user->guid)
+                ->assertJsonPath('data.photo_url', route('me.photo'));
+
+            Storage::disk('local')->assertExists($user->fresh()->profile_photo_path);
+            if ($oldPath !== null) {
+                Storage::disk('local')->assertMissing($oldPath);
+            }
+        }
+
+        $this->assertCount(1, Storage::disk('local')->allFiles());
+    }
+
+    public function test_profile_photo_accepts_eight_megabytes_and_rejects_a_larger_file(): void
+    {
+        Storage::fake('local');
+        config(['documents.disk' => 'local']);
+        $user = User::factory()->create();
+
+        $this->actingAs($user)->post('/api/v1/me/photo', [
+            'photo' => UploadedFile::fake()->image('avatar.png')->size(8192),
+        ])->assertOk();
+        $path = $user->fresh()->profile_photo_path;
+
+        $this->post('/api/v1/me/photo', [
+            'photo' => UploadedFile::fake()->image('avatar.png')->size(8193),
+        ])->assertUnprocessable()->assertJsonPath('error.code', 'VALIDATION_FAILED')
+            ->assertJsonStructure(['error' => ['errors' => ['photo']]]);
+
+        $this->assertSame($path, $user->fresh()->profile_photo_path);
+        Storage::disk('local')->assertExists($path);
+        $this->assertCount(1, Storage::disk('local')->allFiles());
+    }
+
+    public function test_profile_photo_rejects_an_unsupported_image_format(): void
+    {
+        Storage::fake('local');
+        config(['documents.disk' => 'local']);
+        $user = User::factory()->create();
+
+        $this->actingAs($user)->post('/api/v1/me/photo', [
+            'photo' => UploadedFile::fake()->image('avatar.gif'),
+        ])->assertUnprocessable()->assertJsonStructure(['error' => ['errors' => ['photo']]]);
+
+        $this->assertNull($user->fresh()->profile_photo_path);
+        $this->assertSame([], Storage::disk('local')->allFiles());
+    }
+
+    public function test_profile_photo_requires_authentication(): void
+    {
+        Storage::fake('local');
+        config(['documents.disk' => 'local']);
+
+        $this->post('/api/v1/me/photo', [
+            'photo' => UploadedFile::fake()->image('avatar.png'),
+        ], ['Accept' => 'application/json'])->assertUnauthorized()->assertJsonPath('error.code', 'UNAUTHENTICATED');
+
+        $this->assertSame([], Storage::disk('local')->allFiles());
+    }
+
+    public function test_profile_photo_only_updates_the_authenticated_user(): void
+    {
+        Storage::fake('local');
+        config(['documents.disk' => 'local']);
+        $user = User::factory()->create();
+        $other = User::factory()->create(['profile_photo_path' => 'profile-photos/other.png']);
+        Storage::disk('local')->put($other->profile_photo_path, 'existing photo');
+
+        $this->actingAs($user)->post('/api/v1/me/photo', [
+            'photo' => UploadedFile::fake()->image('avatar.png'),
+            'user_guid' => $other->guid,
+        ])->assertOk()->assertJsonPath('data.guid', $user->guid);
+
+        $this->assertNotNull($user->fresh()->profile_photo_path);
+        $this->assertSame('profile-photos/other.png', $other->fresh()->profile_photo_path);
+        Storage::disk('local')->assertExists($other->profile_photo_path);
     }
 
     public function test_email_change_waits_for_signed_link_and_consumes_it_once(): void
