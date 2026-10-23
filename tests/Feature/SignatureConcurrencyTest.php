@@ -101,6 +101,7 @@ class SignatureConcurrencyTest extends TestCase
             $this->assertSame('signed', $assignment->fresh()->status);
             $this->assertSame('ready', $next->fresh()->status);
             $this->assertSame(1, AuditEvent::where('action', 'assignment.signed')->count());
+            $this->assertSame(1, EmailNotification::where('notification_type', 'assignment_signed')->where('assignment_guid', $assignment->guid)->count());
             $this->assertSame(1, AuditEvent::where('action', 'assignment.activated')->count());
             $this->assertSame(1, EmailNotification::where('assignment_guid', $next->guid)->where('notification_type', 'invitation_ready')->where('status', 'queued')->count());
 

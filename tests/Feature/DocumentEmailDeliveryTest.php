@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Jobs\DeliverDocumentEmail;
+use App\Jobs\DeliverRealtimeNotification;
 use App\Jobs\FinalizeDocument;
 use App\Jobs\GenerateDocumentPreview;
 use App\Models\EmailNotification;
@@ -14,6 +15,7 @@ use App\Services\PublishService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Mail\Events\MessageSent;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
@@ -24,6 +26,28 @@ use Tests\TestCase;
 class DocumentEmailDeliveryTest extends TestCase
 {
     use RefreshDatabase, SigningFixtures;
+
+    public function test_delivery_job_is_only_enqueued_after_commit_and_is_discarded_on_rollback(): void
+    {
+        config(['documents.processing.connection' => 'database']);
+        $queue = Queue::connection('database');
+        try {
+            DB::transaction(function () use ($queue): void {
+                $queue->push(new DeliverDocumentEmail(fake()->uuid()));
+                $this->assertDatabaseCount('jobs', 0);
+                throw new RuntimeException('Rollback');
+            });
+            $this->fail('Expected rollback');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('Rollback', $exception->getMessage());
+        }
+        $this->assertDatabaseCount('jobs', 0);
+        DB::transaction(function () use ($queue): void {
+            $queue->push(new DeliverDocumentEmail(fake()->uuid()));
+            $this->assertDatabaseCount('jobs', 0);
+        });
+        $this->assertDatabaseCount('jobs', 1);
+    }
 
     public function test_delivery_is_once_and_clears_the_recoverable_invitation(): void
     {
@@ -173,6 +197,6 @@ class DocumentEmailDeliveryTest extends TestCase
         Queue::assertPushed(DeliverDocumentEmail::class, 1);
         Queue::assertPushed(GenerateDocumentPreview::class, fn ($job): bool => $job->versionGuid === $preview->guid);
         Queue::assertPushed(FinalizeDocument::class, fn ($job): bool => $job->versionGuid === $final->guid);
-        Queue::assertCount(3);
+        Queue::assertPushed(DeliverRealtimeNotification::class, 1);
     }
 }

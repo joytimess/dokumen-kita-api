@@ -14,7 +14,7 @@ $application = require dirname(__DIR__, 2).'/bootstrap/app.php';
 $application->make(Kernel::class)->bootstrap();
 
 [$script, $database, $userGuid, $assignmentGuid, $storageRoot, $gate] = $argv;
-$operation = $argv[6] ?? 'reject';
+$operation = $argv[7] ?? 'reject';
 if (preg_match('/\Adk_be05_test_[a-f0-9]{16}\z/', $database) !== 1) {
     exit(1);
 }

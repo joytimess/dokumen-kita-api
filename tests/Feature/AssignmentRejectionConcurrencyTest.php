@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\EmailNotification;
 use App\Models\ReadConfirmation;
 use App\Models\Signature;
 use App\Models\User;
@@ -91,11 +92,15 @@ class AssignmentRejectionConcurrencyTest extends TestCase
             $this->assertGreaterThanOrEqual(100, max(array_column($results, 'lock_wait_ms')));
             $this->assertSame(1, count(array_filter($results, fn (array $result): bool => isset($result['error']))));
             if ($version->fresh()->status->value === 'rejected') {
+                $this->assertSame(1, EmailNotification::where('notification_type', 'version_rejected')->count());
+                $this->assertDatabaseMissing('email_notifications', ['notification_type' => 'assignment_signed']);
                 $this->assertSame(0, Signature::count());
                 $this->assertSame('rejected', $assignment->fresh()->status);
                 $this->assertSame(1, $assignment->response()->where('response_type', 'rejected')->count());
                 $this->assertDatabaseHas('audit_events', ['action' => 'version.rejected']);
             } else {
+                $this->assertSame(1, EmailNotification::where('notification_type', 'assignment_signed')->count());
+                $this->assertDatabaseMissing('email_notifications', ['notification_type' => 'version_rejected']);
                 $this->assertSame('signed', $assignment->fresh()->status);
                 $this->assertSame(1, Signature::count());
                 $this->assertSame(0, $assignment->response()->count());
@@ -191,6 +196,7 @@ class AssignmentRejectionConcurrencyTest extends TestCase
             $this->assertGreaterThanOrEqual(100, max(array_column($results, 'lock_wait_ms')));
             $this->assertSame(1, count(array_filter($results, fn (array $result): bool => isset($result['error']))));
             $this->assertSame(1, $assignment->response()->count());
+            $this->assertSame(1, EmailNotification::whereIn('notification_type', ['revision_requested', 'version_rejected'])->count());
             $this->assertContains($version->fresh()->status->value, ['rejected', 'revision_requested']);
             if ($version->fresh()->status->value === 'revision_requested') {
                 $this->assertSame(2, $version->document->versions()->count());

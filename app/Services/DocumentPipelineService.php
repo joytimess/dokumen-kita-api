@@ -170,6 +170,7 @@ class DocumentPipelineService
                 if ($locked->content_hash !== $version->content_hash || $locked->manifest_hash !== $version->manifest_hash) {
                     throw ApiException::conflict('FINALIZATION_SNAPSHOT_CHANGED', 'Snapshot finalisasi berubah.');
                 }
+                $this->snapshot->verifyFile($path, hash('sha256', $bytes), 'PDF');
                 $this->completeFinalization($locked, $path, $bytes);
 
                 return true;
@@ -188,10 +189,18 @@ class DocumentPipelineService
             'status' => VersionStatus::Completed, 'finalization_error_code' => null,
         ]);
         $version->document->update(['status' => VersionStatus::Completed]);
-        EmailNotification::firstOrCreate(['deduplication_key' => 'completed:'.$version->guid], [
-            'version_guid' => $version->guid, 'recipient_email' => $version->document->owner->email,
-            'notification_type' => 'version_completed', 'status' => 'queued',
-        ]);
+        $ownerEmail = Str::lower(trim($version->document->owner->email));
+        $recipients = $version->assignments()->pluck('recipient_email')->prepend($ownerEmail)
+            ->map(fn (string $email): string => Str::lower(trim($email)))->unique();
+        foreach ($recipients as $email) {
+            // Preserve the existing owner key so retries cannot duplicate older completion rows.
+            $key = 'completed:'.$version->guid.($email === $ownerEmail ? '' : ':'.hash('sha256', $email));
+            EmailNotification::firstOrCreate(['deduplication_key' => $key], [
+                'version_guid' => $version->guid, 'recipient_email' => $email,
+                'notification_type' => 'version_completed', 'status' => 'queued',
+                'payload' => ['completed_at' => now()->toIso8601String()],
+            ]);
+        }
         $this->audit->record('version.completed', $version->document, $version, null, ['final_pdf_hash' => $version->final_pdf_hash]);
         $this->realtime->notifyOwner($version, 'version.final_pdf_ready');
         foreach ($version->assignments()->with('user')->get() as $assignment) {

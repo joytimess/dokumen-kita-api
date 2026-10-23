@@ -77,6 +77,20 @@ class SignatureService
             $this->audit->record('assignment.signed', $version->document, $version, $actor, [
                 'assignment_guid' => $locked->guid, 'signature_guid' => $signature->guid, 'content_hash' => $contentHash,
             ]);
+            EmailNotification::firstOrCreate(['deduplication_key' => 'signed:'.$locked->guid], [
+                'version_guid' => $version->guid,
+                'assignment_guid' => $locked->guid,
+                'recipient_email' => $version->document->owner->email,
+                'notification_type' => 'assignment_signed',
+                'status' => 'queued',
+                'payload' => [
+                    'signature_guid' => $signature->guid,
+                    'requester' => $actor->name.' <'.$actor->email.'>',
+                    'completed_at' => $signature->signed_at->toIso8601String(),
+                    'signed_count' => $assignments->where('status', 'signed')->count(),
+                    'signer_count' => $assignments->count(),
+                ],
+            ]);
 
             $next = $assignments->firstWhere('sequence_number', $locked->sequence_number + 1);
             if ($next !== null) {

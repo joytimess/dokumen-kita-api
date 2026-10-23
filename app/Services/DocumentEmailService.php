@@ -14,7 +14,10 @@ use Throwable;
 
 class DocumentEmailService
 {
-    public function __construct(private readonly VersionWorkflow $workflow) {}
+    public function __construct(
+        private readonly VersionWorkflow $workflow,
+        private readonly StoredPreviewSnapshot $snapshot,
+    ) {}
 
     public function deliver(string $guid): void
     {
@@ -70,7 +73,9 @@ class DocumentEmailService
             } elseif (! (($email->notification_type === 'version_finalizing' && $version->status === VersionStatus::Finalizing)
                 || ($email->notification_type === 'version_completed' && $version->status === VersionStatus::Completed)
                 || ($email->notification_type === 'revision_requested' && $version->status === VersionStatus::RevisionRequested)
-                || ($email->notification_type === 'version_rejected' && $version->status === VersionStatus::Rejected))) {
+                || ($email->notification_type === 'version_rejected' && $version->status === VersionStatus::Rejected)
+                || ($email->notification_type === 'assignment_signed' && $assignment?->signature()
+                    ->where('guid', $email->payload['signature_guid'] ?? '')->exists()))) {
                 $email->update(['status' => 'cancelled', 'payload' => null]);
 
                 return;
@@ -78,10 +83,22 @@ class DocumentEmailService
 
             $email->attempt_count++;
             try {
+                if ($email->notification_type === 'version_completed') {
+                    $this->snapshot->verifyFile($version->final_pdf_path ?? '', $version->final_pdf_hash ?? '', 'PDF');
+                }
+                if ($url === null) {
+                    $url = rtrim(config('app.frontend_url'), '/').'/documents/'.$version->document_guid;
+                    if (in_array($email->notification_type, ['version_completed', 'assignment_signed'], true)) {
+                        $url .= '/versions/'.$version->guid.'/view';
+                    }
+                }
                 Notification::route('mail', $email->recipient_email)->notify(new DocumentWorkflowNotification(
                     $email->notification_type, $version->document->title, $version->version_number, $url,
                     in_array($email->notification_type, ['revision_requested', 'version_rejected'], true) ? ($email->payload['reason'] ?? null) : null,
-                    in_array($email->notification_type, ['revision_requested', 'version_rejected'], true) ? ($email->payload['requester'] ?? null) : null,
+                    $email->payload['requester'] ?? null,
+                    $email->payload['completed_at'] ?? null,
+                    $email->payload['signed_count'] ?? null,
+                    $email->payload['signer_count'] ?? null,
                 ));
                 $email->fill(['status' => 'sent', 'sent_at' => now(), 'payload' => null, 'last_error_code' => null]);
             } catch (Throwable) {

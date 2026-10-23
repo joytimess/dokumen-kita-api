@@ -71,6 +71,7 @@ class SignatureApiTest extends TestCase
         $this->assertSame(2, $assignment->placeholders()->count());
         $this->assertSame(VersionStatus::InProgress, $version->fresh()->status);
         $this->assertSame(1, AuditEvent::where('action', 'assignment.signed')->count());
+        $this->assertSame(1, EmailNotification::where('assignment_guid', $assignment->guid)->where('notification_type', 'assignment_signed')->count());
         $this->assertSame(
             ['name' => $first->name, 'email' => $first->email],
             AuditEvent::where('action', 'assignment.signed')->firstOrFail()->metadata_json['actor_snapshot'],
@@ -103,6 +104,7 @@ class SignatureApiTest extends TestCase
         $this->assertDatabaseHas('documents', ['guid' => $version->document_guid, 'status' => 'finalizing']);
         $this->assertNull($version->fresh()->final_pdf_path);
         $this->assertSame(1, EmailNotification::where('notification_type', 'version_finalizing')->count());
+        $this->assertSame(1, EmailNotification::where('notification_type', 'assignment_signed')->count());
         $this->assertSame(1, AuditEvent::where('action', 'version.finalizing')->count());
     }
 
@@ -300,6 +302,7 @@ class SignatureApiTest extends TestCase
         $this->assertDatabaseCount('signatures', 0);
         $this->assertSame('ready', $assignment->fresh()->status);
         $this->assertSame(0, AuditEvent::where('action', 'assignment.signed')->count());
+        $this->assertDatabaseMissing('email_notifications', ['notification_type' => 'assignment_signed']);
         $this->assertSame(1, $assignment->invitationLinks()->whereNull('revoked_at')->count());
         $this->assertSame('queued', EmailNotification::where('assignment_guid', $assignment->guid)->firstOrFail()->status);
     }

@@ -19,6 +19,7 @@ class DeliverDocumentEmail implements ShouldBeUnique, ShouldQueue
 
     public function __construct(public string $notificationGuid)
     {
+        $this->afterCommit();
         $this->onConnection(config('documents.processing.connection'));
         $this->onQueue(config('documents.processing.queue'));
     }

@@ -89,5 +89,6 @@ class RevisionWorkflowTest extends TestCase
             ->assertJsonPath('error.code', 'ASSIGNMENT_NOT_READY');
         $this->actingAs(User::factory()->create())->postJson($url, ['reason' => 'Perbaiki isinya'])->assertNotFound();
         $this->assertSame(1, $version->document->versions()->count());
+        $this->assertDatabaseMissing('email_notifications', ['notification_type' => 'revision_requested']);
     }
 }

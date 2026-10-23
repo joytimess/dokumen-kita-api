@@ -62,5 +62,6 @@ class SignerRejectionTest extends TestCase
         $this->actingAs(User::factory()->create())->postJson($url, ['reason' => 'Mohon koreksi'])->assertNotFound();
         $this->assertSame(VersionStatus::InProgress, $version->fresh()->status);
         $this->assertDatabaseCount('recipient_responses', 0);
+        $this->assertDatabaseMissing('email_notifications', ['notification_type' => 'version_rejected']);
     }
 }
