@@ -581,7 +581,7 @@ Jadwal: [routes/console.php](routes/console.php).
 
 | Jadwal                             | Perintah                       | Peran                                                                                 |
 | ---------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------- |
-| Setiap 5 detik, withoutOverlapping | documents:process              | Dispatch pending conversion, preview, finalisasi, email, realtime, OCR dari database. |
+| Setiap menit, withoutOverlapping | documents:process              | Dispatch pending conversion, preview, finalisasi, email, realtime, OCR dari database. |
 | Harian                             | auth:prune-password-challenges | Hapus challenge OTP/reset token kedaluwarsa.                                          |
 
 | Job/notifikasi                       | Pekerjaan                                | Koneksi/queue                                                                              |
@@ -599,13 +599,15 @@ Pada contoh, worker `database --queue=documents,default` menangani keduanya. Jik
 
 Timeout worker harus lebih kecil dari retry interval koneksi: contoh `180 < 240` detik. Timeout job conversion 180 detik, preview/finalisasi 60 detik, OCR 120 detik. Retry email/realtime juga diatur state service; opsi tries worker bukan satu-satunya pengatur retry.
 
-Cron production memanggil scheduler setiap menit; task submenit tetap dikelola scheduler Laravel:
+Cron production memanggil scheduler setiap menit:
 
 ```cron
-* * * * * cd /srv/dokumen-kita-api && php artisan schedule:run >> /dev/null 2>&1
+* * * * * cd "<PROJECT_ROOT>" && "<PHP_CLI>" artisan schedule:run >> /dev/null 2>&1
 ```
 
 Path merupakan contoh. `php artisan serve` tidak menjalankan worker/scheduler. `composer run dev` menjalankan server, queue listener default, Vite; tidak menggantikan worker queue dokumen dan scheduler.
+
+Untuk DomaiNesia/cPanel tanpa daemon permanen, gunakan [panduan cron cPanel](docs/cpanel-deployment.md): scheduler per menit dan worker berumur terbatas dengan lock antarproses, mencakup queue `default` dan `documents`.
 
 ## 15. Perintah Artisan kustom
 
@@ -664,7 +666,7 @@ Repository belum menyediakan konfigurasi Nginx/Supervisor/container atau domain 
 - [ ] User PHP/worker dapat menulis storage/, bootstrap/cache/, temp dan cache font Dompdf yang dikonfigurasi; hindari permission global 777.
 - [ ] Sertakan resources/fonts/Carlito-\*.ttf dan lisensinya; pastikan cache font writable.
 - [ ] Jalankan `php artisan optimize` atau cache granular `php artisan config:cache` dan `php artisan route:cache`; periksa exit status pada target.
-- [ ] Supervisor/systemd/process manager menjaga worker tetap berjalan dan restart otomatis. Contoh command: `php artisan queue:work database --queue=documents,default --sleep=1 --tries=3 --timeout=180`.
+- [ ] Worker dijalankan oleh process manager, atau [cron worker terbatas untuk cPanel](docs/cpanel-deployment.md). Pilih satu mekanisme; jangan menjalankan keduanya untuk queue yang sama.
 - [ ] Aktifkan cron; setelah deploy jalankan `php artisan queue:restart` dan `php artisan schedule:interrupt` agar proses lama memuat release baru.
 - [ ] Sesuaikan upload_max_filesize, post_max_size, web server limit dengan batas aplikasi 20.480 KB; POST limit menampung overhead multipart.
 - [ ] Konfirmasi adapter sebelum memilih s3: config tersedia, tetapi adapter S3 tidak tercantum pada direct requirements. Jangan menganggap S3/R2 siap dari variabel saja.
