@@ -46,6 +46,10 @@ class AppServiceProvider extends ServiceProvider
 
     private function configureRateLimiting(): void
     {
+        RateLimiter::for('ai-chat', fn (Request $request) => [
+            Limit::perMinute((int) config('chatbot.per_minute'))->by('ai-chat-user:'.$request->user()?->guid),
+            Limit::perMinute(30)->by('ai-chat-ip:'.$request->ip()),
+        ]);
         RateLimiter::for('auth-login', fn (Request $request) => Limit::perMinute(5)->by(Str::lower((string) $request->input('email')).'|'.$request->ip()));
         RateLimiter::for('uploads', fn (Request $request) => Limit::perMinute(20)->by((string) $request->user()?->guid));
         RateLimiter::for('signature-classification', fn (Request $request) => Limit::perMinute(config('documents.signature_assets.classification_per_minute'))->by('signature-classification:'.$request->user()?->guid));

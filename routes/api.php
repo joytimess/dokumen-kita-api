@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AiChatController;
 use App\Http\Controllers\Api\V1\AssignmentPlaceholderController;
 use App\Http\Controllers\Api\V1\AssignmentRejectionController;
 use App\Http\Controllers\Api\V1\AssignmentRevisionController;
@@ -60,6 +61,8 @@ Route::prefix('v1')->group(function (): void {
     });
 
     Route::middleware('auth:sanctum')->group(function (): void {
+        Route::post('ai/chat', AiChatController::class)->middleware('throttle:ai-chat');
+
         Route::get('me', [MeController::class, 'show']);
         Route::patch('me/profile', [MeController::class, 'updateProfile']);
         Route::get('me/photo', [MeController::class, 'photo'])->name('me.photo');
