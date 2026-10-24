@@ -113,6 +113,56 @@ class RealtimeNotificationTest extends TestCase
         );
     }
 
+    public function test_realtime_dispatch_chunks_preserve_due_id_order_without_skips_or_duplicates(): void
+    {
+        $this->freezeTime();
+        Bus::fake();
+        $owner = User::factory()->create();
+        $expected = [];
+        $total = 0;
+        for ($i = 0; $i < 223; $i++) {
+            $states = [[
+                'status' => 'queued',
+                'attempt_count' => $i % 3,
+                'next_attempt_at' => match ($i % 3) {
+                    0 => null,
+                    1 => now()->subMinute(),
+                    2 => now(),
+                },
+            ]];
+            if ($i % 10 === 0) {
+                array_push($states,
+                    ['status' => 'queued', 'attempt_count' => 1, 'next_attempt_at' => now()->addMinute()],
+                    ['status' => 'queued', 'attempt_count' => 3, 'next_attempt_at' => null],
+                    ['status' => 'queued', 'attempt_count' => 3, 'next_attempt_at' => now()->subMinute()],
+                    ['status' => 'failed', 'attempt_count' => 0, 'next_attempt_at' => null],
+                    ['status' => 'delivered', 'attempt_count' => 1, 'next_attempt_at' => null],
+                );
+            }
+            foreach ($states as $offset => $state) {
+                $notification = UserNotification::create([
+                    'user_guid' => $owner->guid,
+                    'event_type' => 'version.final_pdf_ready',
+                    'deduplication_key' => 'chunk:'.$i.':'.$offset,
+                ]);
+                $delivery = RealtimeDelivery::create(['notification_guid' => $notification->guid] + $state);
+                if ($offset === 0) {
+                    $expected[] = $delivery->guid;
+                }
+                $total++;
+            }
+        }
+
+        $this->artisan('documents:process')->assertSuccessful();
+
+        $actual = Bus::dispatched(DeliverRealtimeNotification::class)->pluck('deliveryGuid')->all();
+        $this->assertSame($expected, $actual);
+        $this->assertCount(223, array_unique($actual));
+        $this->assertDatabaseCount('realtime_deliveries', $total);
+        $this->assertDatabaseCount('user_notifications', $total);
+        $this->assertSame($total, RealtimeDelivery::whereNull('delivered_at')->count());
+    }
+
     public function test_terminal_finalization_failure_queues_an_owner_refresh_event(): void
     {
         $owner = User::factory()->create();
