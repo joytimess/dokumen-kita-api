@@ -32,7 +32,7 @@ class DocumentActivityController extends Controller
     public function versions(Request $request, Document $document): AnonymousResourceCollection
     {
         Gate::authorize('view', $document);
-        $query = DocumentVersion::where('document_guid', $document->guid)->with('document', 'assignments.placeholders', 'assignments.readConfirmation', 'assignments.signature');
+        $query = DocumentVersion::where('document_guid', $document->guid)->with('document.latestVersion:guid,document_guid,version_number', 'assignments.placeholders', 'assignments.readConfirmation', 'assignments.signature');
         if ($document->owner_guid !== $request->user()->guid) {
             $query->whereHas('assignments', fn ($assignments) => $assignments->where('user_guid', $request->user()->guid));
         }

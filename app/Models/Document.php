@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable(['owner_guid', 'category_guid', 'public_reference', 'title', 'status'])]
@@ -46,6 +47,19 @@ class Document extends Model
     public function versions(): HasMany
     {
         return $this->hasMany(DocumentVersion::class, 'document_guid', 'guid');
+    }
+
+    /**
+     * Distinct recipient membership across every version, for authorization only.
+     *
+     * @return HasManyThrough<SignerAssignment, DocumentVersion, $this>
+     */
+    public function recipientMemberships(): HasManyThrough
+    {
+        return $this->hasManyThrough(SignerAssignment::class, DocumentVersion::class, 'document_guid', 'version_guid', 'guid', 'guid')
+            ->select('signer_assignments.user_guid')
+            ->whereNotNull('signer_assignments.user_guid')
+            ->distinct();
     }
 
     /**

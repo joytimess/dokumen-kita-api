@@ -35,7 +35,9 @@ class DocumentVersionPolicy
             return Response::allow();
         }
 
-        $assignment = $version->assignments()->where('user_guid', $user->guid)->first();
+        $assignment = $version->relationLoaded('assignments')
+            ? $version->assignments->sortBy('sequence_number')->firstWhere('user_guid', $user->guid)
+            : $version->assignments()->where('user_guid', $user->guid)->first();
         if ($assignment === null) {
             return Response::denyAsNotFound();
         }

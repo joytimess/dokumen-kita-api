@@ -16,7 +16,7 @@ class SigningHistoryController extends Controller
         $query = AuditEvent::query()
             ->where('actor_guid', $request->user()->guid)
             ->whereIn('action', ['assignment.signed', 'version.revision_requested'])
-            ->with(['document.owner', 'version']);
+            ->with(['document.owner', 'document.recipientMemberships', 'version']);
 
         if ($search = $request->validated('q')) {
             $pattern = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower($search)).'%';

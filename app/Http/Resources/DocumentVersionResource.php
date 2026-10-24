@@ -23,7 +23,7 @@ class DocumentVersionResource extends ApiResource
             'guid' => $this->guid,
             'document_guid' => $this->document_guid,
             'document_title' => $this->document->title,
-            'is_current' => ! $this->document->versions()->where('version_number', '>', $this->version_number)->exists(),
+            'is_current' => $this->isCurrent(),
             'version_number' => $this->version_number,
             'status' => $this->status,
             'preview_status' => $this->preview_status,
@@ -56,6 +56,17 @@ class DocumentVersionResource extends ApiResource
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];
+    }
+
+    private function isCurrent(): bool
+    {
+        if ($this->document->relationLoaded('latestVersion')) {
+            $latest = $this->document->latestVersion;
+
+            return $latest === null || $latest->version_number <= $this->version_number;
+        }
+
+        return ! $this->document->versions()->where('version_number', '>', $this->version_number)->exists();
     }
 
     /** @return array<string, mixed>|null */

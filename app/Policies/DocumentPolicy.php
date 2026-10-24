@@ -37,6 +37,10 @@ class DocumentPolicy
 
     private function isRecipient(User $user, Document $document): bool
     {
+        if ($document->relationLoaded('recipientMemberships')) {
+            return $document->recipientMemberships->contains('user_guid', $user->guid);
+        }
+
         return SignerAssignment::query()
             ->where('user_guid', $user->guid)
             ->whereHas('version', fn ($query) => $query->where('document_guid', $document->guid))

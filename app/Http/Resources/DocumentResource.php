@@ -15,6 +15,10 @@ class DocumentResource extends ApiResource
      */
     public function toArray(Request $request): array
     {
+        if ($this->relationLoaded('latestVersion') && $this->latestVersion !== null) {
+            $this->latestVersion->setRelation('document', $this->resource);
+        }
+
         return [
             'guid' => $this->guid,
             'public_reference' => $this->public_reference,
