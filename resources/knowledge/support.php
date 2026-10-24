@@ -6,7 +6,10 @@ return [
         'id' => 'registration',
         'module' => 'authentication',
         'sources' => ['app/Services/AuthService.php', 'app/Http/Requests/Auth/RegisterRequest.php', 'tests/Feature/AuthApiTest.php'],
-        'aliases' => ['registrasi akun', 'mendaftar akun', 'buat akun', 'daftar akun', 'register account', 'create account', 'sign up'],
+        'aliases' => [
+            'registrasi akun', 'mendaftar akun', 'buat akun', 'daftar akun', 'register account', 'create account', 'sign up',
+            'daftar akun baru', 'mendaftar akun baru', 'membuat akun baru', 'belum punya akun', 'register a new account', 'create a new account',
+        ],
         'question' => ['id' => 'Bagaimana cara mendaftar akun?', 'en' => 'How do I create an account?'],
         'answer' => [
             'id' => 'Daftar menggunakan nama, email yang belum digunakan, kata sandi, dan konfirmasi kata sandi. Registrasi membuat akun dan sesi login, lalu menyiapkan email verifikasi. Buka tautan verifikasi yang dikirim ke email Anda.',
@@ -17,7 +20,13 @@ return [
         'id' => 'login',
         'module' => 'authentication',
         'sources' => ['app/Services/AuthService.php', 'routes/api.php', 'tests/Feature/AuthApiTest.php', 'tests/Feature/GoogleAuthTest.php'],
-        'aliases' => ['login', 'log in', 'masuk akun', 'sign in', 'login google', 'masuk google', 'google sign in'],
+        'aliases' => [
+            'login', 'log in', 'masuk akun', 'sign in', 'login google', 'masuk google', 'google sign in',
+            'masuk ke akun', 'masuk pakai google', 'login pakai google', 'login dengan google',
+            'tidak bisa login', 'login email salah', 'login kata sandi salah', 'log into my account', 'sign in with google',
+            'logout', 'keluar akun', 'mengakhiri sesi', 'log out of my account',
+            'can not log in', 'can not login',
+        ],
         'question' => ['id' => 'Bagaimana cara login?', 'en' => 'How do I log in?'],
         'answer' => [
             'id' => 'Login menggunakan email dan kata sandi akun Anda. Dokumen-Kita juga menyediakan alur login Google. Jika email atau kata sandi salah, login ditolak; percobaan login dibatasi. Gunakan logout untuk mengakhiri sesi.',
@@ -28,7 +37,12 @@ return [
         'id' => 'email_verification',
         'module' => 'authentication',
         'sources' => ['app/Http/Controllers/Api/V1/EmailVerificationController.php', 'app/Services/VersionWorkflow.php', 'tests/Feature/AuthApiTest.php'],
-        'aliases' => ['verifikasi email', 'kirim ulang verifikasi email', 'verify email', 'email verification', 'resend verification email'],
+        'aliases' => [
+            'verifikasi email', 'kirim ulang verifikasi email', 'verify email', 'email verification', 'resend verification email',
+            'email verifikasi tidak masuk', 'email verifikasi belum masuk', 'email verifikasi tidak sampai',
+            'kirim ulang email verifikasi', 'verifikasi email akun', 'verify my email address',
+            'verification email has not arrived', 'resend my verification email',
+        ],
         'question' => ['id' => 'Bagaimana cara verifikasi email?', 'en' => 'How do I verify my email?'],
         'answer' => [
             'id' => 'Buka tautan pada email verifikasi Dokumen-Kita. Anda dapat meminta pengiriman ulang email verifikasi setelah login; permintaan dibatasi. Email akun harus terverifikasi untuk mengklaim undangan dan menandatangani dokumen.',
@@ -39,7 +53,12 @@ return [
         'id' => 'password_reset',
         'module' => 'authentication',
         'sources' => ['app/Services/PasswordResetService.php', 'tests/Feature/PasswordResetOtpTest.php'],
-        'aliases' => ['lupa kata sandi', 'lupa password', 'reset password', 'forgot password', 'reset kata sandi'],
+        'aliases' => [
+            'lupa kata sandi', 'lupa password', 'reset password', 'forgot password', 'reset kata sandi',
+            'lupa sandi akun', 'password lupa', 'reset password pakai otp', 'atur ulang kata sandi',
+            'forgot my password', 'reset my forgotten password', 'forgotten password',
+            'mengatur ulang kata sandi', 'verifikasi otp reset password',
+        ],
         'question' => ['id' => 'Bagaimana jika saya lupa kata sandi?', 'en' => 'How do I reset a forgotten password?'],
         'answer' => [
             'id' => 'Untuk akun yang memiliki kata sandi, gunakan alur lupa kata sandi dengan email akun, verifikasi kode OTP yang dikirim melalui email, lalu masukkan kata sandi baru beserta konfirmasinya. Akun khusus Google tanpa kata sandi tidak menggunakan alur ini. OTP dan percobaan verifikasi dibatasi; gunakan kode yang masih berlaku.',
@@ -50,7 +69,13 @@ return [
         'id' => 'dashboard',
         'module' => 'dashboard',
         'sources' => ['app/Services/DocumentService.php', 'app/Http/Requests/Document/ListDocumentsRequest.php', 'tests/Feature/DocumentVisibilityTest.php'],
-        'aliases' => ['dashboard', 'dasbor', 'cari dokumen', 'filter dokumen', 'search documents', 'filter documents'],
+        'aliases' => [
+            'dashboard', 'dasbor', 'cari dokumen', 'filter dokumen', 'search documents', 'filter documents',
+            'mencari dokumen berdasarkan judul', 'mencari dokumen saya', 'mencari dokumen gue', 'memfilter dokumen',
+            'filter dokumen berdasarkan status', 'mencari dokumen di dashboard', 'find my documents',
+            'search for a document by title', 'filter my documents by status',
+            'filter dokumen tanpa kategori', 'filter dokumen berdasarkan kategori', 'filter dokumen tersembunyi',
+        ],
         'question' => ['id' => 'Bagaimana cara mencari dan memfilter dokumen?', 'en' => 'How do I search and filter documents?'],
         'answer' => [
             'id' => 'Daftar dokumen milik Anda mendukung pencarian judul dan filter status, kategori, tanpa kategori, serta dokumen aktif atau disembunyikan. Daftar memakai pagination. Asisten ini hanya memberi panduan umum dan tidak dapat memeriksa jumlah atau status dokumen akun Anda.',
@@ -61,7 +86,14 @@ return [
         'id' => 'document_categories',
         'module' => 'categories',
         'sources' => ['app/Services/DocumentCategoryService.php', 'app/Http/Controllers/Api/V1/DocumentCategoryController.php', 'tests/Feature/DocumentCategoryApiTest.php'],
-        'aliases' => ['kategori dokumen', 'document category', 'document categories', 'buat kategori', 'hapus kategori', 'create category', 'delete category', 'ubah kategori', 'assign category'],
+        'aliases' => [
+            'kategori dokumen', 'document category', 'document categories', 'buat kategori', 'hapus kategori',
+            'create category', 'delete category', 'ubah kategori', 'assign category',
+            'mengelola kategori dokumen', 'membuat kategori baru', 'menghapus kategori yang masih dipakai',
+            'kategori tidak bisa dihapus', 'lepas kategori dokumen', 'create a new document category',
+            'category is still in use', 'remove a category from my document',
+            'menetapkan kategori dokumen', 'melepas kategori dokumen', 'mengubah kategori beberapa dokumen sekaligus',
+        ],
         'question' => ['id' => 'Bagaimana cara mengelola kategori dokumen?', 'en' => 'How do I manage document categories?'],
         'answer' => [
             'id' => 'Kategori dikelola oleh pemilik akun dengan nama, warna yang didukung, dan deskripsi opsional. Anda dapat membuat, mengubah, dan menetapkan atau melepas kategori pada dokumen milik Anda, termasuk beberapa dokumen sekaligus. Kategori yang masih dipakai dokumen tidak dapat dihapus; lepaskan atau pindahkan kategorinya terlebih dahulu.',
@@ -72,7 +104,10 @@ return [
         'id' => 'create_document',
         'module' => 'documents',
         'sources' => ['app/Services/DocumentService.php', 'tests/Feature/DocumentApiTest.php'],
-        'aliases' => ['buat dokumen', 'membuat dokumen', 'dokumen baru', 'create document', 'new document', 'create draft'],
+        'aliases' => [
+            'buat dokumen', 'membuat dokumen', 'bikin dokumen', 'dokumen baru', 'create document', 'new document', 'create draft',
+            'membuat dokumen baru', 'membuat draft baru', 'mulai dokumen baru', 'create a new document', 'start a new draft',
+        ],
         'question' => ['id' => 'Bagaimana cara membuat dokumen?', 'en' => 'How do I create a document?'],
         'answer' => [
             'id' => 'Buat dokumen dengan judul untuk menghasilkan draft versi pertama. Isi draft dapat diedit atau berasal dari impor PDF/DOCX. Hanya pemilik yang dapat mengubah draft terkini. Siapkan isi, preview terbaru, penerima, urutan, dan posisi tanda tangan sebelum menerbitkan dokumen.',
@@ -83,7 +118,12 @@ return [
         'id' => 'document_visibility',
         'module' => 'documents',
         'sources' => ['app/Services/DocumentService.php', 'tests/Feature/DocumentVisibilityTest.php'],
-        'aliases' => ['sembunyikan dokumen', 'dokumen tersembunyi', 'hide document', 'hidden documents', 'restore hidden document', 'tampilkan dokumen tersembunyi'],
+        'aliases' => [
+            'sembunyikan dokumen', 'dokumen tersembunyi', 'hide document', 'hidden documents', 'restore hidden document',
+            'tampilkan dokumen tersembunyi', 'menyembunyikan dokumen', 'sembunyiin dokumen',
+            'balikin dokumen tersembunyi', 'menampilkan kembali dokumen tersembunyi', 'dokumen tidak terlihat di daftar aktif',
+            'hide a document from my active list', 'restore a hidden document',
+        ],
         'question' => ['id' => 'Bagaimana cara menyembunyikan dokumen?', 'en' => 'How do I hide a document?'],
         'answer' => [
             'id' => 'Pemilik dapat menyembunyikan dokumen dari daftar aktif dan menampilkannya kembali melalui pengaturan visibilitas. Gunakan filter dokumen tersembunyi untuk melihatnya. Menyembunyikan dokumen tidak menghapusnya atau membatalkan alur tanda tangan.',
@@ -94,7 +134,13 @@ return [
         'id' => 'import_document',
         'module' => 'imports',
         'sources' => ['app/Services/DocumentService.php', 'app/Services/SourceFileInspector.php', 'tests/Feature/ImportConversionTest.php'],
-        'aliases' => ['impor dokumen', 'import document', 'impor pdf', 'impor docx', 'import pdf', 'import docx', 'upload pdf', 'upload docx', 'unggah pdf', 'unggah docx', 'pdf docx'],
+        'aliases' => [
+            'impor dokumen', 'import document', 'impor pdf', 'impor docx', 'import pdf', 'import docx',
+            'upload pdf', 'upload docx', 'unggah pdf', 'unggah docx', 'pdf docx', 'upload word', 'unggah word', 'impor word', 'import word',
+            'mengimpor pdf', 'mengimpor docx', 'unggah file word', 'impor berkas docx', 'impor word ke draft',
+            'hasil impor berubah tata letak', 'import a word file into my draft', 'upload a docx file', 'import layout changed',
+            'unggah file word ke draft', 'unggah dokumen pdf', 'unggah dokumen docx',
+        ],
         'question' => ['id' => 'Bagaimana cara impor PDF atau DOCX?', 'en' => 'How do I import a PDF or DOCX?'],
         'answer' => [
             'id' => 'Impor PDF atau DOCX ke draft dokumen terkini. Berkas diperiksa dan disimpan privat, lalu masuk antrean konversi ke isi editor. Jika draft sudah berisi konten, penggantian perlu dikonfirmasi. Tunggu konversi, tinjau isi hasil impor, buat preview dari editor terbaru, dan periksa kembali posisi tanda tangan sebelum publish. Hasil konversi perlu ditinjau karena tata letak dapat berubah.',
@@ -105,7 +151,11 @@ return [
         'id' => 'editor_autosave',
         'module' => 'editor',
         'sources' => ['app/Services/DocumentService.php', 'app/Http/Requests/Document/UpdateVersionRequest.php', 'tests/Feature/DocumentApiTest.php'],
-        'aliases' => ['autosave', 'editor', 'simpan draft', 'save draft', 'edit dokumen', 'edit document', 'editor revision conflict', 'konflik simpan'],
+        'aliases' => [
+            'autosave', 'editor', 'simpan draft', 'save draft', 'edit dokumen', 'edit document', 'editor revision conflict', 'konflik simpan',
+            'mengubah isi dokumen', 'mengubah draft', 'simpan perubahan draft', 'draft berubah dari sesi lain',
+            'draft tidak bisa disimpan karena konflik revisi', 'edit my document', 'save changes to my draft', 'draft changed in another session',
+        ],
         'question' => ['id' => 'Bagaimana penyimpanan draft di editor?', 'en' => 'How does saving an editor draft work?'],
         'answer' => [
             'id' => 'Perubahan editor disimpan pada draft terkini dengan pemeriksaan revisi. Jika draft berubah dari sesi lain, muat ulang sebelum menyimpan kembali. Perubahan isi membuat preview lama tidak berlaku dan posisi tanda tangan perlu ditinjau ulang. Buat preview terbaru setelah selesai mengedit; versi yang sudah diterbitkan tidak dapat diedit langsung.',
@@ -116,7 +166,11 @@ return [
         'id' => 'publish_invitation',
         'module' => 'invitations',
         'sources' => ['app/Services/PublishService.php', 'app/Services/InvitationService.php', 'tests/Feature/PublishApiTest.php', 'tests/Feature/InvitationApiTest.php'],
-        'aliases' => ['kirim undangan', 'mengirim undangan', 'send invitation', 'publish document', 'terbitkan dokumen', 'publish dokumen', 'kirim ulang undangan', 'resend invitation'],
+        'aliases' => [
+            'kirim undangan', 'mengirim undangan', 'send invitation', 'publish document', 'terbitkan dokumen', 'publish dokumen',
+            'kirim ulang undangan', 'resend invitation', 'kirim undangan tanda tangan', 'kirim ulang undangan tanda tangan',
+            'menerbitkan dokumen', 'undang penerima tanda tangan', 'send a signing invitation', 'resend a signing invitation',
+        ],
         'question' => ['id' => 'Bagaimana cara mengirim undangan tanda tangan?', 'en' => 'How do I send signing invitations?'],
         'answer' => [
             'id' => 'Pemilik menyiapkan draft terkini, preview yang valid, daftar email penerima berurutan tanpa duplikasi, serta posisi tanda tangan untuk setiap penerima. Setelah publish, undangan aktif disiapkan melalui email sesuai giliran. Pengiriman ulang tersedia untuk penerima yang gilirannya aktif; tautan undangan sebelumnya dicabut.',
@@ -127,7 +181,12 @@ return [
         'id' => 'claim_invitation',
         'module' => 'invitations',
         'sources' => ['app/Services/InvitationService.php', 'tests/Feature/InvitationApiTest.php'],
-        'aliases' => ['terima undangan', 'menerima undangan', 'buka undangan', 'claim invitation', 'accept invitation', 'open invitation', 'undangan kedaluwarsa', 'expired invitation'],
+        'aliases' => [
+            'terima undangan', 'menerima undangan', 'buka undangan', 'claim invitation', 'accept invitation', 'open invitation',
+            'undangan kedaluwarsa', 'expired invitation', 'terima undangan tanda tangan', 'buka link undangan',
+            'tautan undangan kedaluwarsa', 'link undangan sudah expired', 'klaim undangan tanda tangan',
+            'accept a signing invitation', 'my invitation link has expired',
+        ],
         'question' => ['id' => 'Bagaimana cara menerima undangan tanda tangan?', 'en' => 'How do I claim a signing invitation?'],
         'answer' => [
             'id' => 'Login dengan akun yang emailnya sama dengan email penerima undangan dan sudah terverifikasi, lalu buka tautan undangan yang masih berlaku. Undangan hanya aktif pada giliran penerima. Tautan yang kedaluwarsa atau dicabut tidak dapat digunakan; pemilik dapat mengirim ulang undangan ketika giliran Anda aktif.',
@@ -138,7 +197,12 @@ return [
         'id' => 'signing_order',
         'module' => 'signing',
         'sources' => ['app/Services/SigningSetupService.php', 'app/Services/SignatureService.php', 'tests/Feature/SigningSetupApiTest.php', 'tests/Feature/SignatureApiTest.php'],
-        'aliases' => ['urutan signer', 'urutan penandatangan', 'urutan tanda tangan', 'giliran tanda tangan', 'signing order', 'signer order', 'waiting signer', 'menunggu giliran'],
+        'aliases' => [
+            'urutan signer', 'urutan penandatangan', 'urutan tanda tangan', 'giliran tanda tangan',
+            'signing order', 'signer order', 'waiting signer', 'menunggu giliran',
+            'mengatur urutan penandatangan', 'atur urutan tanda tangan', 'nunggu giliran tanda tangan',
+            'giliran tanda tangan belum aktif', 'set the signing order', 'waiting for my signing turn',
+        ],
         'question' => ['id' => 'Bagaimana urutan penandatangan bekerja?', 'en' => 'How does signing order work?'],
         'answer' => [
             'id' => 'Pemilik menetapkan urutan penerima pada draft dari 1 sampai jumlah penerima tanpa email duplikat. Hanya penerima berstatus siap pada giliran aktif yang dapat menandatangani. Setelah ia menandatangani, penerima berikutnya diaktifkan dan undangannya disiapkan. Pemilik juga dapat menjadi salah satu penandatangan.',
@@ -149,7 +213,11 @@ return [
         'id' => 'sign_document',
         'module' => 'signing',
         'sources' => ['app/Services/SignatureService.php', 'app/Services/ReadConfirmationService.php', 'tests/Feature/SignatureApiTest.php', 'tests/Feature/SignatureAuthorizationTest.php'],
-        'aliases' => ['menandatangani dokumen', 'tandatangani dokumen', 'tanda tangan dokumen', 'sign document', 'sign documents', 'signing document'],
+        'aliases' => [
+            'menandatangani dokumen', 'tandatangani dokumen', 'tanda tangan dokumen', 'sign dokumen',
+            'sign document', 'sign a document', 'sign documents', 'signing document',
+            'tanda tangan di dokumen', 'konfirmasi baca sebelum tanda tangan', 'confirm reading before signing', 'sign my document',
+        ],
         'question' => ['id' => 'Bagaimana cara menandatangani dokumen?', 'en' => 'How do I sign a document?'],
         'answer' => [
             'id' => 'Login dengan email penerima yang sudah terverifikasi dan terima undangan yang masih aktif. Saat giliran Anda siap, baca preview dokumen dan konfirmasikan telah membaca snapshot tersebut. Pilih aset tanda tangan milik Anda lalu kirim tanda tangan. Jika dokumen berubah atau giliran belum aktif, muat ulang atau tunggu giliran sebelum mencoba kembali.',
@@ -160,7 +228,12 @@ return [
         'id' => 'signature_assets',
         'module' => 'signature_assets',
         'sources' => ['app/Services/SignatureAssetService.php', 'app/Http/Requests/Document/StoreSignatureAssetRequest.php', 'tests/Feature/SignatureAssetApiTest.php'],
-        'aliases' => ['aset tanda tangan', 'signature asset', 'signature assets', 'my signs', 'tanda tangan saya', 'unggah tanda tangan', 'upload signature', 'draw signature', 'gambar tanda tangan', 'hapus aset tanda tangan', 'delete signature asset'],
+        'aliases' => [
+            'aset tanda tangan', 'signature asset', 'signature assets', 'my signs', 'tanda tangan saya', 'unggah tanda tangan',
+            'upload signature', 'draw signature', 'gambar tanda tangan', 'hapus aset tanda tangan', 'delete signature asset',
+            'menghapus tanda tangan tersimpan', 'unggah gambar tanda tangan', 'aset tanda tangan sudah dipakai tidak bisa dihapus',
+            'delete a saved signature', 'upload my signature image', 'signature image is blank',
+        ],
         'question' => ['id' => 'Bagaimana cara mengelola aset tanda tangan saya?', 'en' => 'How do I manage my signature assets?'],
         'answer' => [
             'id' => 'Aset tanda tangan milik Anda dapat berasal dari gambar yang digambar atau diunggah dalam format PNG, JPG/JPEG, atau WebP. Gambar diperiksa dan dinormalisasi; gambar kosong atau bukan tanda tangan ditolak. Aset disimpan privat dan hanya pemilik yang dapat mengelolanya. Aset yang sudah dipakai menandatangani tidak dapat dihapus.',
@@ -171,7 +244,13 @@ return [
         'id' => 'signing_history',
         'module' => 'history',
         'sources' => ['app/Http/Controllers/Api/V1/SigningHistoryController.php', 'app/Http/Requests/SigningHistoryRequest.php', 'tests/Feature/SigningHistoryApiTest.php'],
-        'aliases' => ['riwayat tanda tangan', 'riwayat penandatanganan', 'signing history', 'signs histories', 'signature history'],
+        'aliases' => [
+            'riwayat tanda tangan', 'riwayat penandatanganan', 'signing history', 'signs histories', 'signature history',
+            'melihat riwayat tanda tangan', 'history tanda tangan', 'riwayat permintaan revisi',
+            'mencari riwayat tanda tangan', 'filter riwayat tanda tangan berdasarkan tanggal',
+            'view my signing history', 'find my revision request history',
+            'melihat riwayat penandatanganan', 'melihat riwayat permintaan revisi',
+        ],
         'question' => ['id' => 'Bagaimana cara melihat riwayat tanda tangan?', 'en' => 'How do I view signing history?'],
         'answer' => [
             'id' => 'Riwayat pribadi menampilkan aktivitas tanda tangan dan permintaan revisi yang dilakukan akun Anda. Anda dapat mencari judul dokumen, memfilter rentang tanggal, dan membuka detail riwayat yang tersedia. Riwayat milik akun lain tidak dapat diakses. Riwayat lama mungkin tidak memiliki snapshot lengkap.',
@@ -182,7 +261,11 @@ return [
         'id' => 'request_revision',
         'module' => 'revisions',
         'sources' => ['app/Services/RevisionService.php', 'tests/Feature/RevisionWorkflowTest.php'],
-        'aliases' => ['minta revisi', 'permintaan revisi', 'revisi dokumen', 'request revision', 'document revision', 'revise document'],
+        'aliases' => [
+            'minta revisi', 'permintaan revisi', 'revisi dokumen', 'request revision', 'document revision', 'revise document',
+            'meminta revisi dokumen', 'minta revisi dokumen', 'minta perbaikan dokumen', 'ajukan revisi dokumen',
+            'request a revision to this document', 'ask for a document revision',
+        ],
         'question' => ['id' => 'Bagaimana cara meminta revisi dokumen?', 'en' => 'How do I request a document revision?'],
         'answer' => [
             'id' => 'Penerima pada giliran aktif yang belum menandatangani dapat meminta revisi dengan alasan. Versi lama ditandai meminta revisi dan undangannya dicabut. Sistem membuat draft versi baru untuk pemilik; posisi tanda tangan harus ditinjau ulang dan preview serta persetujuan baru diperlukan sebelum alur tanda tangan dilanjutkan.',
@@ -193,7 +276,11 @@ return [
         'id' => 'reject_signing',
         'module' => 'rejections',
         'sources' => ['app/Services/AssignmentRejectionService.php', 'routes/api.php', 'tests/Feature/SignerRejectionTest.php'],
-        'aliases' => ['tolak tanda tangan', 'menolak dokumen', 'tolak dokumen', 'reject signing', 'reject document', 'cancel signing', 'batal tanda tangan', 'pembatalan tanda tangan', 'batalkan tanda tangan', 'hapus tanda tangan', 'remove submitted signature'],
+        'aliases' => [
+            'tolak tanda tangan', 'menolak dokumen', 'tolak dokumen', 'reject signing', 'reject document', 'cancel signing',
+            'batal tanda tangan', 'pembatalan tanda tangan', 'batalkan tanda tangan', 'menolak penandatanganan',
+            'tolak permintaan tanda tangan', 'menolak sebelum tanda tangan', 'reject a signing request', 'decline to sign a document',
+        ],
         'question' => ['id' => 'Bagaimana cara menolak penandatanganan?', 'en' => 'How do I reject signing?'],
         'answer' => [
             'id' => 'Penerima pada giliran aktif yang belum menandatangani dapat menolak dengan alasan. Versi dokumen menjadi ditolak, undangan dicabut, dan penerima yang masih menunggu dibatalkan. Ini adalah penolakan sebelum tanda tangan; panduan ini tidak menyediakan cara mencabut atau menghapus tanda tangan yang sudah dikirim.',
@@ -204,7 +291,11 @@ return [
         'id' => 'final_pdf',
         'module' => 'final_pdf',
         'sources' => ['app/Services/DocumentPipelineService.php', 'app/Http/Controllers/Api/V1/DocumentPdfController.php', 'tests/Feature/DocumentPipelineApiTest.php'],
-        'aliases' => ['pdf final', 'final pdf', 'unduh pdf', 'download pdf', 'finalizing', 'finalisasi dokumen', 'download signed document', 'unduh dokumen selesai'],
+        'aliases' => [
+            'pdf final', 'final pdf', 'unduh pdf', 'download pdf', 'finalizing', 'finalisasi dokumen', 'download signed document',
+            'unduh dokumen selesai', 'mengunduh pdf final', 'pdf final belum siap', 'dokumen masih finalisasi',
+            'download the final pdf', 'final pdf is not ready', 'download my signed document',
+        ],
         'question' => ['id' => 'Kapan PDF final tersedia?', 'en' => 'When is the final PDF available?'],
         'answer' => [
             'id' => 'Setelah penandatangan terakhir selesai, versi masuk tahap finalisasi. PDF final dibuat dari snapshot preview yang disetujui beserta tanda tangan, lalu tersedia ketika versi berstatus selesai. Akses PDF tetap memerlukan izin. Jika masih finalisasi atau PDF belum siap, tunggu pemrosesan selesai; asisten tidak dapat memeriksa atau mempercepat proses dokumen Anda.',
@@ -215,7 +306,12 @@ return [
         'id' => 'profile',
         'module' => 'profile',
         'sources' => ['app/Services/ProfileService.php', 'app/Http/Requests/UploadProfilePhotoRequest.php', 'tests/Feature/ProfileApiTest.php'],
-        'aliases' => ['profil', 'profile', 'ubah nama', 'change name', 'foto profil', 'profile photo', 'ubah email', 'change email', 'ubah kata sandi', 'change password'],
+        'aliases' => [
+            'profil', 'profile', 'ubah nama', 'change name', 'foto profil', 'profile photo', 'ubah email', 'change email',
+            'ubah kata sandi', 'change password', 'mengubah foto profil', 'unggah foto profil', 'menghapus foto profil',
+            'email baru perlu verifikasi', 'akun google tidak bisa mengubah password', 'mengubah password',
+            'change my profile picture', 'update my email address', 'delete my profile photo',
+        ],
         'question' => ['id' => 'Bagaimana cara mengubah profil?', 'en' => 'How do I update my profile?'],
         'answer' => [
             'id' => 'Anda dapat mengubah nama serta mengunggah atau menghapus foto profil. Foto mendukung JPG/JPEG, PNG, atau WebP hingga 8 MB, dengan batas unggahan server tetap berlaku. Perubahan email memerlukan verifikasi ke email baru. Perubahan email dan kata sandi hanya tersedia bagi akun email/kata sandi tanpa identitas Google; akun Google tidak dapat menggunakan kedua perubahan tersebut.',
