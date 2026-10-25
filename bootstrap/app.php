@@ -16,7 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withBroadcasting(__DIR__.'/../routes/channels.php', ['middleware' => ['api', 'auth:sanctum']])
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->statefulApi();
-        $middleware->api(prepend: [AssignRequestId::class]);
+        $middleware->append(AssignRequestId::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         (new ApiExceptionRenderer)->register($exceptions);

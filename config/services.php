@@ -29,6 +29,7 @@ return [
     ],
 
     'google' => [
+        'session_diagnostics' => env('GOOGLE_OAUTH_SESSION_DIAGNOSTICS', false),
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
         'redirect' => env('GOOGLE_REDIRECT_URI'),
