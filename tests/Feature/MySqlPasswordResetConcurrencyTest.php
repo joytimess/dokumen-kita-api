@@ -16,8 +16,9 @@ class MySqlPasswordResetConcurrencyTest extends TestCase
     {
         parent::setUp();
 
-        if (DB::getDriverName() !== 'mysql' || DB::getDatabaseName() !== 'dokumen_kita_otp_test') {
-            $this->markTestSkipped('Requires the isolated MySQL database dokumen_kita_otp_test.');
+        if (DB::getDriverName() !== 'mysql'
+            || ! preg_match('/\Adokumen_kita_otp_test(?:_[a-f0-9]{8})?\z/', DB::getDatabaseName())) {
+            $this->markTestSkipped('Requires the isolated MySQL database dokumen_kita_otp_test, optionally with an eight-hex-character suffix.');
         }
 
         $this->artisan('migrate:fresh', ['--force' => true])->assertSuccessful();
@@ -62,7 +63,7 @@ class MySqlPasswordResetConcurrencyTest extends TestCase
         $this->assertDatabaseMissing('password_reset_challenges', ['user_guid' => $user->guid]);
     }
 
-    public function test_concurrent_send_respects_cooldown_and_creates_one_job(): void
+    public function test_concurrent_send_respects_cooldown_without_queuing_otp(): void
     {
         $user = User::factory()->create();
 
@@ -71,7 +72,7 @@ class MySqlPasswordResetConcurrencyTest extends TestCase
         sort($results);
         $this->assertSame(['limited', 'ok'], $results);
         $this->assertDatabaseCount('password_reset_challenges', 1);
-        $this->assertDatabaseCount('jobs', 1);
+        $this->assertDatabaseCount('jobs', 0);
     }
 
     /** @param array<int, string> $operations
@@ -105,7 +106,7 @@ PHP;
         $environment = [
             'APP_ENV' => 'testing', 'DB_CONNECTION' => 'mysql', 'DB_URL' => '',
             'DB_HOST' => $connection['host'], 'DB_PORT' => (string) $connection['port'],
-            'DB_DATABASE' => 'dokumen_kita_otp_test', 'DB_USERNAME' => $connection['username'],
+            'DB_DATABASE' => $connection['database'], 'DB_USERNAME' => $connection['username'],
             'DB_PASSWORD' => $connection['password'], 'DB_SOCKET' => $connection['unix_socket'],
             'CACHE_STORE' => 'array', 'SESSION_DRIVER' => 'database', 'MAIL_MAILER' => 'array',
             'QUEUE_CONNECTION' => 'database',

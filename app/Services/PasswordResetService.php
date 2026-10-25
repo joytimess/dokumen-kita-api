@@ -10,9 +10,11 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
+use Throwable;
 
 class PasswordResetService
 {
@@ -52,7 +54,14 @@ class PasswordResetService
                 'updated_at' => now(),
             ]);
 
-            $user->notify(new PasswordResetOtp($challengeGuid, $otp));
+            // The OTP must not wait for a worker or be sent for a rolled-back challenge.
+            DB::afterCommit(function () use ($user, $challengeGuid, $otp): void {
+                try {
+                    $user->notifyNow(new PasswordResetOtp($challengeGuid, $otp));
+                } catch (Throwable $exception) {
+                    Log::warning('Password reset OTP delivery failed.', ['error' => class_basename($exception)]);
+                }
+            });
         });
     }
 

@@ -15,6 +15,8 @@ use App\Models\RealtimeDelivery;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class ProcessDocumentWork extends Command
 {
@@ -23,6 +25,33 @@ class ProcessDocumentWork extends Command
     protected $description = 'Dispatch durable pending preview, finalization, and notifications';
 
     public function handle(): int
+    {
+        $startedAt = hrtime(true);
+        Log::info('Document work dispatch started.');
+
+        try {
+            $this->dispatchPendingWork();
+        } catch (Throwable $exception) {
+            Log::error('Document work dispatch failed.', [
+                'elapsed_ms' => round((hrtime(true) - $startedAt) / 1_000_000, 2),
+                'exit_code' => self::FAILURE,
+                'error' => class_basename($exception),
+            ]);
+            $this->error('Document work dispatch failed. See application logs.');
+
+            return self::FAILURE;
+        }
+
+        Log::info('Document work dispatch completed.', [
+            'elapsed_ms' => round((hrtime(true) - $startedAt) / 1_000_000, 2),
+            'exit_code' => self::SUCCESS,
+        ]);
+        $this->info('Document work dispatch completed.');
+
+        return self::SUCCESS;
+    }
+
+    private function dispatchPendingWork(): void
     {
         DocumentVersion::where('status', 'draft')->where('conversion_status', 'queued')->whereNotNull('conversion_generation')
             ->chunkById(100, function (Collection $versions): void {
@@ -58,7 +87,5 @@ class ProcessDocumentWork extends Command
             });
         DocumentOcrPage::where('status', 'queued')->distinct()->get(['version_guid', 'pdf_hash'])
             ->each(fn (DocumentOcrPage $page) => ProcessDocumentOcr::dispatch($page->version_guid, $page->pdf_hash));
-
-        return self::SUCCESS;
     }
 }

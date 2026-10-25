@@ -4,26 +4,38 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use App\Notifications\PasswordResetOtp;
+use App\Services\PasswordResetService;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Contracts\Mail\Factory as MailFactory;
 use Illuminate\Contracts\Mail\Mailer;
-use Illuminate\Foundation\Testing\DatabaseMigrations;
+use Illuminate\Foundation\Testing\DatabaseTruncation;
+use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Mail\Events\MessageSent;
-use Illuminate\Notifications\SendQueuedNotifications;
-use Illuminate\Support\Facades\Crypt;
+use Illuminate\Notifications\Events\NotificationSending;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Symfony\Component\Mailer\Exception\TransportException;
 use Tests\TestCase;
 
 class PasswordResetOtpTest extends TestCase
 {
-    use DatabaseMigrations;
+    use DatabaseTruncation;
+
+    protected function beforeTruncatingDatabase(): void
+    {
+        // Real commits need a fresh schema per test, including a new in-memory connection.
+        RefreshDatabaseState::$migrated = false;
+        $this->beforeApplicationDestroyed(static function (): void {
+            RefreshDatabaseState::$migrated = false;
+        });
+    }
 
     protected function setUp(): void
     {
@@ -51,113 +63,174 @@ class PasswordResetOtpTest extends TestCase
         $this->assertDatabaseCount('password_reset_challenges', 1);
     }
 
-    public function test_forgot_queues_encrypted_email_without_sending_in_request(): void
+    public function test_forgot_delivers_after_commit_without_queuing_and_only_persists_the_otp_hash(): void
     {
+        config(['queue.default' => 'database']);
         $user = User::factory()->create();
         Event::fake([MessageSent::class]);
+        $otp = null;
+        Event::listen(NotificationSending::class, function (NotificationSending $event) use (&$otp): void {
+            if ($event->notification instanceof PasswordResetOtp) {
+                $this->assertSame(0, DB::transactionLevel());
+                $otp = $event->notification->otp;
+                $this->assertMatchesRegularExpression('/\A[0-9]{6}\z/', $otp);
+                $this->assertTrue(Hash::check($otp, DB::table('password_reset_challenges')->value('otp_hash')));
+            }
+        });
 
         $this->postJson('/api/v1/auth/password/forgot', ['email' => '  '.Str::upper($user->email).'  '])->assertAccepted();
 
-        Event::assertNotDispatched(MessageSent::class);
-        $this->assertDatabaseCount('jobs', 1);
-        $payload = json_decode(DB::table('jobs')->value('payload'), true);
-        $job = unserialize(Crypt::decrypt($payload['data']['command']));
-        $this->assertInstanceOf(SendQueuedNotifications::class, $job);
-        $this->assertMatchesRegularExpression('/\\A[0-9]{6}\\z/', $job->notification->otp);
-        $this->assertStringNotContainsString('otp";', $payload['data']['command']);
-        $this->assertTrue(Hash::check($job->notification->otp, DB::table('password_reset_challenges')->value('otp_hash')));
-        $this->assertSame(3, $payload['maxTries']);
-        $this->assertSame(30, $payload['timeout']);
-        $this->assertSame('30,120', $payload['backoff']);
-    }
-
-    public function test_worker_delivers_otp_email_without_a_reset_link(): void
-    {
-        $user = User::factory()->create();
-        Event::fake([MessageSent::class]);
-        $this->postJson('/api/v1/auth/password/forgot', ['email' => $user->email])->assertAccepted();
-
-        $this->artisan('queue:work', ['connection' => 'database', '--once' => true, '--sleep' => 0])->assertSuccessful();
-
-        Event::assertDispatched(MessageSent::class, function (MessageSent $event): bool {
+        $this->assertNotNull($otp);
+        Event::assertDispatchedTimes(MessageSent::class, 1);
+        Event::assertDispatched(MessageSent::class, function (MessageSent $event) use ($otp): bool {
             $html = $event->message->getHtmlBody();
 
-            return str_contains($html, '5 menit') && ! str_contains($html, '/reset-password?');
+            return str_contains($html, $otp) && str_contains($html, '5 menit') && ! str_contains($html, '/reset-password?');
         });
+        $this->assertDatabaseCount('jobs', 0);
+        $this->assertSame('database', config('queue.default'));
+    }
+
+    public function test_request_immediately_after_worker_stops_delivers_without_another_worker(): void
+    {
+        config(['queue.default' => 'database']);
+        $this->freezeTime();
+        $user = User::factory()->create();
+        Event::fake([MessageSent::class]);
+
+        $this->artisan('queue:work', [
+            'connection' => 'database', '--queue' => 'default,documents',
+            '--stop-when-empty' => true, '--max-time' => 50, '--sleep' => 0,
+        ])->assertSuccessful();
+        $this->travel(1)->seconds();
+
+        $this->postJson('/api/v1/auth/password/forgot', ['email' => $user->email])
+            ->assertAccepted()->assertJsonPath('data.otp_expires_in', 300);
+
+        Event::assertDispatchedTimes(MessageSent::class, 1);
+        $this->assertDatabaseCount('jobs', 0);
+        $this->assertSame(now()->addSeconds(300)->timestamp, strtotime(DB::table('password_reset_challenges')->value('otp_expires_at')));
+    }
+
+    public function test_delivery_waits_for_the_outer_transaction_to_commit(): void
+    {
+        $user = User::factory()->create();
+        Event::fake([MessageSent::class]);
+        DB::beginTransaction();
+
+        $this->app->make(PasswordResetService::class)->sendOtp($user->email);
+
+        Event::assertNotDispatched(MessageSent::class);
+        $this->assertDatabaseCount('password_reset_challenges', 1);
+        DB::commit();
+
+        Event::assertDispatchedTimes(MessageSent::class, 1);
+        $this->assertSame(0, DB::transactionLevel());
         $this->assertDatabaseCount('jobs', 0);
     }
 
-    public function test_expired_queued_otp_is_not_sent(): void
+    public function test_rolled_back_transaction_does_not_send_or_queue_an_otp(): void
+    {
+        $user = User::factory()->create();
+        Event::fake([MessageSent::class]);
+        DB::beginTransaction();
+
+        $this->app->make(PasswordResetService::class)->sendOtp($user->email);
+        DB::rollBack();
+
+        Event::assertNotDispatched(MessageSent::class);
+        $this->assertDatabaseCount('password_reset_challenges', 0);
+        $this->assertDatabaseCount('jobs', 0);
+    }
+
+    public function test_otp_expired_before_commit_is_not_sent(): void
     {
         $this->freezeTime();
         $user = User::factory()->create();
         Event::fake([MessageSent::class]);
-        $this->postJson('/api/v1/auth/password/forgot', ['email' => $user->email])->assertAccepted();
-        $this->travel(5)->minutes();
+        DB::beginTransaction();
 
-        $this->artisan('queue:work', ['connection' => 'database', '--once' => true, '--sleep' => 0])->assertSuccessful();
+        $this->app->make(PasswordResetService::class)->sendOtp($user->email);
+        $this->travel(300)->seconds();
+        DB::commit();
 
         Event::assertNotDispatched(MessageSent::class);
         $this->assertDatabaseCount('jobs', 0);
     }
 
-    public function test_worker_skips_replaced_challenge_and_sends_latest_code(): void
+    public function test_replaced_challenge_before_commit_only_sends_the_latest_code(): void
     {
         $this->freezeTime();
         $user = User::factory()->create();
         Event::fake([MessageSent::class]);
-        $this->postJson('/api/v1/auth/password/forgot', ['email' => $user->email])->assertAccepted();
-        $this->travel(60)->seconds();
-        $this->postJson('/api/v1/auth/password/forgot', ['email' => $user->email])->assertAccepted();
+        $otp = null;
+        Event::listen(NotificationSending::class, function (NotificationSending $event) use (&$otp): void {
+            $otp = $event->notification->otp;
+        });
+        DB::beginTransaction();
 
-        $this->artisan('queue:work', ['connection' => 'database', '--stop-when-empty' => true, '--sleep' => 0])->assertSuccessful();
+        $this->app->make(PasswordResetService::class)->sendOtp($user->email);
+        $this->travel(60)->seconds();
+        $this->app->make(PasswordResetService::class)->sendOtp($user->email);
+        DB::commit();
+
+        Event::assertDispatchedTimes(MessageSent::class, 1);
+        $this->assertNotNull($otp);
+        $this->assertTrue(Hash::check($otp, DB::table('password_reset_challenges')->value('otp_hash')));
+        $this->assertDatabaseCount('jobs', 0);
+    }
+
+    public function test_queue_unavailability_does_not_prevent_immediate_otp_delivery(): void
+    {
+        config(['queue.default' => 'database']);
+        $user = User::factory()->create();
+        Event::fake([MessageSent::class]);
+        Queue::shouldReceive('connection')->never();
+
+        $this->postJson('/api/v1/auth/password/forgot', ['email' => $user->email])->assertAccepted();
 
         Event::assertDispatchedTimes(MessageSent::class, 1);
         $this->assertDatabaseCount('jobs', 0);
     }
 
-    public function test_enqueue_failure_returns_500_instead_of_accepting(): void
+    #[DataProvider('transportFailures')]
+    public function test_smtp_failure_or_timeout_keeps_the_generic_response_and_logs_no_sensitive_details(string $detail): void
     {
-        config(['app.debug' => false]);
+        config(['app.debug' => true]);
         $user = User::factory()->create();
-        Queue::shouldReceive('connection')->with('database')->andThrow(new \RuntimeException('Queue unavailable'));
-
-        $this->postJson('/api/v1/auth/password/forgot', ['email' => $user->email])
-            ->assertInternalServerError()->assertJsonPath('error.code', 'INTERNAL_ERROR');
-    }
-
-    public function test_smtp_failure_is_retried_then_recorded_as_failed_job(): void
-    {
-        $this->freezeTime();
-        $user = User::factory()->create();
+        $googleUser = User::factory()->create(['password' => null]);
         $mailer = \Mockery::mock(Mailer::class);
-        $mailer->shouldReceive('send')->times(3)->andThrow(new \RuntimeException('SMTP unavailable'));
-        $this->mock(MailFactory::class)->shouldReceive('mailer')->with(null)->times(3)->andReturn($mailer);
-        $this->postJson('/api/v1/auth/password/forgot', ['email' => $user->email])->assertAccepted();
+        $mailer->shouldReceive('send')->once()->andThrow(new TransportException($detail.' '.$user->email.' secret-otp-012345'));
+        $this->mock(MailFactory::class)->shouldReceive('mailer')->with(null)->once()->andReturn($mailer);
+        Log::shouldReceive('warning')->once()->with('Password reset OTP delivery failed.', ['error' => 'TransportException']);
 
-        $this->artisan('queue:work', ['connection' => 'database', '--once' => true, '--sleep' => 0])->assertSuccessful();
-        $this->assertDatabaseHas('jobs', ['attempts' => 1, 'available_at' => now()->addSeconds(30)->timestamp]);
-        $this->travel(30)->seconds();
-        $this->artisan('queue:work', ['connection' => 'database', '--once' => true, '--sleep' => 0])->assertSuccessful();
-        $this->assertDatabaseHas('jobs', ['attempts' => 2, 'available_at' => now()->addSeconds(120)->timestamp]);
-        $this->travel(120)->seconds();
-        $this->artisan('queue:work', ['connection' => 'database', '--once' => true, '--sleep' => 0])->assertSuccessful();
+        foreach ([$user->email, 'unknown@example.test', $googleUser->email] as $email) {
+            $this->postJson('/api/v1/auth/password/forgot', ['email' => $email])
+                ->assertAccepted()
+                ->assertJsonPath('data', ['status' => 'accepted', 'otp_expires_in' => 300, 'resend_after' => 60])
+                ->assertJsonMissingPath('error')->assertJsonMissingPath('data.otp');
+        }
 
         $this->assertDatabaseCount('jobs', 0);
-        $this->assertDatabaseCount('failed_jobs', 1);
-        $this->assertStringContainsString('SMTP unavailable', DB::table('failed_jobs')->value('exception'));
+        $this->assertDatabaseCount('failed_jobs', 0);
+        $this->assertDatabaseCount('password_reset_challenges', 1);
+        $this->assertSame(0, DB::transactionLevel());
     }
 
-    public function test_consumed_otp_is_not_sent_by_worker(): void
+    public static function transportFailures(): array
+    {
+        return ['provider failure' => ['SMTP authentication failed'], 'timeout' => ['Connection to SMTP timed out']];
+    }
+
+    public function test_consumed_otp_before_commit_is_not_sent(): void
     {
         $user = User::factory()->create();
         Event::fake([MessageSent::class]);
-        $this->postJson('/api/v1/auth/password/forgot', ['email' => $user->email])->assertAccepted();
-        $payload = json_decode(DB::table('jobs')->value('payload'), true);
-        $job = unserialize(Crypt::decrypt($payload['data']['command']));
-        $this->verify($user, $job->notification->otp)->assertOk();
+        DB::beginTransaction();
 
-        $this->artisan('queue:work', ['connection' => 'database', '--once' => true, '--sleep' => 0])->assertSuccessful();
+        $this->app->make(PasswordResetService::class)->sendOtp($user->email);
+        DB::table('password_reset_challenges')->where('user_guid', $user->guid)->update(['otp_hash' => null]);
+        DB::commit();
 
         Event::assertNotDispatched(MessageSent::class);
         $this->assertDatabaseCount('jobs', 0);
