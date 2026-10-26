@@ -30,10 +30,19 @@ use App\Http\Controllers\Api\V1\VersionPreviewController;
 use App\Http\Controllers\Api\V1\VersionPublishController;
 use App\Http\Controllers\Api\V1\VersionSignerController;
 use App\Http\Controllers\Api\V1\VersionSourceController;
+use App\Http\Middleware\BlockBrowserNavigation;
 use Illuminate\Support\Facades\Route;
 use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful;
 
-Route::prefix('v1')->group(function (): void {
+Route::get('/', function () {
+    abort(404);
+})->middleware(BlockBrowserNavigation::class);
+
+Route::prefix('v1')->middleware(BlockBrowserNavigation::class)->group(function (): void {
+    Route::get('/', function () {
+        abort(404);
+    });
+
     Route::prefix('auth')->group(function (): void {
         Route::post('register', [AuthController::class, 'register'])->middleware('throttle:auth-register');
         Route::post('login', [AuthController::class, 'login'])->middleware('throttle:auth-login');
@@ -41,7 +50,7 @@ Route::prefix('v1')->group(function (): void {
 
         Route::prefix('google')
             ->middleware(['web', 'throttle:auth-register'])
-            ->withoutMiddleware(EnsureFrontendRequestsAreStateful::class)
+            ->withoutMiddleware([EnsureFrontendRequestsAreStateful::class, BlockBrowserNavigation::class])
             ->group(function (): void {
                 Route::get('redirect', [GoogleAuthController::class, 'redirect']);
                 Route::get('callback', [GoogleAuthController::class, 'callback']);
@@ -52,9 +61,11 @@ Route::prefix('v1')->group(function (): void {
         Route::post('password/reset', [PasswordResetController::class, 'reset'])->middleware('throttle:password-reset');
 
         Route::get('email/verify/{userGuid}/{hash}', [EmailVerificationController::class, 'verify'])
+            ->withoutMiddleware(BlockBrowserNavigation::class)
             ->middleware(['signed', 'throttle:6,1'])
             ->name('verification.verify');
         Route::get('email/change/{requestGuid}', [EmailChangeController::class, 'verify'])
+            ->withoutMiddleware(BlockBrowserNavigation::class)
             ->middleware(['signed', 'throttle:6,1'])
             ->name('auth.email-change.verify');
         Route::post('email/resend', [EmailVerificationController::class, 'resend'])->middleware(['auth:sanctum', 'throttle:6,1']);
@@ -65,7 +76,7 @@ Route::prefix('v1')->group(function (): void {
 
         Route::get('me', [MeController::class, 'show']);
         Route::patch('me/profile', [MeController::class, 'updateProfile']);
-        Route::get('me/photo', [MeController::class, 'photo'])->name('me.photo');
+        Route::get('me/photo', [MeController::class, 'photo'])->withoutMiddleware(BlockBrowserNavigation::class)->name('me.photo');
         Route::post('me/photo', [MeController::class, 'storePhoto'])->middleware('throttle:uploads');
         Route::delete('me/photo', [MeController::class, 'deletePhoto']);
         Route::post('me/email-change', [MeController::class, 'requestEmailChange'])->middleware('throttle:6,1');
@@ -105,16 +116,16 @@ Route::prefix('v1')->group(function (): void {
             Route::post('{version}/ocr/retry', [DocumentOcrController::class, 'retry'])->middleware('throttle:10,1');
             Route::post('{version}/preview', [VersionPreviewController::class, 'store'])->middleware('throttle:10,1');
             Route::post('{version}/convert-import', [VersionConversionController::class, 'store'])->middleware('throttle:10,1');
-            Route::get('{version}/source', [VersionSourceController::class, 'show']);
+            Route::get('{version}/source', [VersionSourceController::class, 'show'])->withoutMiddleware(BlockBrowserNavigation::class);
             Route::post('{version}/finalize', [VersionFinalizationController::class, 'store'])->middleware('throttle:10,1');
             Route::patch('{version}', [DocumentVersionController::class, 'update']);
             Route::post('{version}/decorations/{kind}', [VersionDecorationController::class, 'update'])->whereIn('kind', ['letterhead', 'footer'])->middleware('throttle:uploads');
             Route::patch('{version}/decorations/{kind}', [VersionDecorationController::class, 'update'])->whereIn('kind', ['letterhead', 'footer']);
             Route::delete('{version}/decorations/{kind}', [VersionDecorationController::class, 'destroy'])->whereIn('kind', ['letterhead', 'footer']);
-            Route::get('{version}/decorations/{kind}/image', [VersionDecorationController::class, 'image'])->whereIn('kind', ['letterhead', 'footer'])->name('versions.decorations.image');
+            Route::get('{version}/decorations/{kind}/image', [VersionDecorationController::class, 'image'])->withoutMiddleware(BlockBrowserNavigation::class)->whereIn('kind', ['letterhead', 'footer'])->name('versions.decorations.image');
             Route::put('{version}/signers', [VersionSignerController::class, 'update']);
             Route::post('{version}/publish', [VersionPublishController::class, 'store'])->middleware('throttle:20,1');
-            Route::get('{version}/pdf', [DocumentPdfController::class, 'show']);
+            Route::get('{version}/pdf', [DocumentPdfController::class, 'show'])->withoutMiddleware(BlockBrowserNavigation::class);
         });
 
         Route::prefix('assignments')->group(function (): void {
@@ -130,7 +141,7 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/', [SignatureAssetController::class, 'index']);
             Route::post('/', [SignatureAssetController::class, 'store'])->middleware(['throttle:uploads', 'throttle:signature-classification']);
             Route::delete('{asset}', [SignatureAssetController::class, 'destroy']);
-            Route::get('{asset}/image', [SignatureAssetController::class, 'image'])->name('signature-assets.image');
+            Route::get('{asset}/image', [SignatureAssetController::class, 'image'])->withoutMiddleware(BlockBrowserNavigation::class)->name('signature-assets.image');
         });
 
         Route::post('invitations/claim', [InvitationController::class, 'claim'])->middleware('throttle:invitations');

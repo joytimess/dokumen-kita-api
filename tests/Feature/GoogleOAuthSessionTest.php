@@ -83,6 +83,8 @@ class GoogleOAuthSessionTest extends TestCase
         return $this->call($method, $base.$path, [], $cookies, [], array_replace([
             'HTTPS' => $https ? 'on' : 'off', 'SERVER_PORT' => $https ? 443 : 80,
             'HTTP_REFERER' => $referer, 'HTTP_ACCEPT' => 'application/json',
+            'HTTP_SEC_FETCH_MODE' => str_starts_with($path, '/api/v1/auth/google/') ? 'navigate' : 'cors',
+            'HTTP_SEC_FETCH_DEST' => str_starts_with($path, '/api/v1/auth/google/') ? 'document' : 'empty',
             'HTTP_COOKIE' => implode('; ', array_map(fn ($name, $value) => $name.'='.$value, array_keys($cookies), $cookies)),
         ], $headers));
     }

@@ -2,6 +2,8 @@
 
 use App\Exceptions\ApiExceptionRenderer;
 use App\Http\Middleware\AssignRequestId;
+use App\Http\Middleware\BlockBrowserNavigation;
+use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -17,6 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->statefulApi();
         $middleware->append(AssignRequestId::class);
+        $middleware->prependToPriorityList(AuthenticatesRequests::class, BlockBrowserNavigation::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         (new ApiExceptionRenderer)->register($exceptions);
