@@ -25,7 +25,7 @@ return [
 
     'allowed_headers' => ['*'],
 
-    'exposed_headers' => ['X-Request-Id', 'X-Document-Content-Hash'],
+    'exposed_headers' => ['X-Request-Id', 'X-Document-Content-Hash', 'Content-Disposition'],
 
     'max_age' => 0,
 

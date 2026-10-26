@@ -63,6 +63,9 @@ class DocumentViewerApiTest extends TestCase
         $path = "documents/{$version->document_guid}/final.pdf";
         $bytes = Storage::disk('local')->get($version->preview_pdf_path)."\n% final fixture\n";
         Storage::disk('local')->put($path, $bytes);
+        $version->assignments()->firstOrFail()->signature()->create([
+            'asset_guid' => $this->asset($owner)->guid, 'version_content_hash' => $version->content_hash, 'signed_at' => now(),
+        ]);
         $version->update(['status' => VersionStatus::Completed, 'final_pdf_path' => $path, 'final_pdf_hash' => hash('sha256', $bytes)]);
 
         $this->actingAs($owner)->get("/api/v1/versions/{$version->guid}/pdf")->assertOk()->assertStreamedContent($bytes);
