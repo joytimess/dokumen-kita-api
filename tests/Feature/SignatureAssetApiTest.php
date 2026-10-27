@@ -22,6 +22,40 @@ class SignatureAssetApiTest extends TestCase
     }
 
     #[DataProvider('formats')]
+    public function test_readable_upload_without_realpath_can_be_stored_and_used_for_signing(string $format, string $source): void
+    {
+        $signer = User::factory()->create();
+        $version = $this->publishedVersion(User::factory()->create(), [$signer]);
+        $assignment = $version->assignments()->firstOrFail();
+        Storage::fake('public');
+        $this->mock(SignatureImageClassifierInterface::class)->shouldReceive('classify')->once()->andReturn(SignatureImageClassification::Signature);
+        $file = UploadedFileFactory::withoutRealPath($this->signatureImage('transparent-ink', $format));
+        $this->assertTrue($file->isValid());
+        $this->assertTrue($file->isReadable());
+        $this->assertFalse($file->getRealPath());
+
+        $created = $this->actingAs($signer)->post('/api/v1/signature-assets', [
+            'file' => $file, 'source_type' => $source,
+        ], ['Accept' => 'application/json'])->assertCreated()->assertJsonPath('data.mime_type', 'image/png')
+            ->assertJsonPath('data.source_type', $source)->assertJsonMissingPath('data.file_path');
+        $asset = SignatureAsset::where('guid', $created->json('data.guid'))->firstOrFail();
+        $bytes = Storage::disk('local')->get($asset->file_path);
+        $this->assertSame(hash('sha256', $bytes), $asset->file_hash);
+        $this->assertSame(IMAGETYPE_PNG, getimagesizefromstring($bytes)[2]);
+        $this->assertSame([], Storage::disk('public')->allFiles());
+        $this->get('/api/v1/signature-assets/'.$asset->guid.'/image')->assertOk()->assertHeader('Content-Type', 'image/png');
+        $this->postJson('/api/v1/assignments/'.$assignment->guid.'/read-confirmation', [
+            'confirmed' => true, 'version_content_hash' => $version->content_hash,
+        ])->assertCreated();
+        $this->postJson('/api/v1/assignments/'.$assignment->guid.'/signatures', [
+            'asset_guid' => $asset->guid, 'confirmed' => true, 'version_content_hash' => $version->content_hash,
+            'idempotency_key' => 'upload-path-regression',
+        ])->assertCreated()->assertJsonPath('data.asset_guid', $asset->guid);
+        $this->assertSame('signed', $assignment->fresh()->status);
+        $this->assertDatabaseHas('signatures', ['asset_guid' => $asset->guid, 'assignment_guid' => $assignment->guid]);
+    }
+
+    #[DataProvider('formats')]
     public function test_image_is_normalized_to_private_png_without_storage_path(string $format, string $source): void
     {
         Storage::fake('local');

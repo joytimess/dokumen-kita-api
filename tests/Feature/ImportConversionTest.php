@@ -12,6 +12,7 @@ use App\Services\OcrSpaceOcrClient;
 use App\Services\PdfDocumentRenderer;
 use App\Services\SourceDocumentConverter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Smalot\PdfParser\Parser;
@@ -21,6 +22,50 @@ use ZipArchive;
 class ImportConversionTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_readable_upload_without_a_resolvable_realpath_is_stored_and_converted(): void
+    {
+        Storage::fake('local');
+        config(['documents.disk' => 'local']);
+        $owner = User::factory()->create();
+        $documentGuid = $this->actingAs($owner)->postJson('/api/v1/documents', ['title' => 'Upload temporary path'])
+            ->assertCreated()->json('data.guid');
+        $oldPath = null;
+
+        foreach (['pdf' => $this->pdf(), 'docx' => $this->docx()] as $extension => $bytes) {
+            $fixture = UploadedFileFactory::content('source.'.$extension, $bytes);
+            // Windows FastCGI uploads can be readable while realpath() cannot resolve the temp directory.
+            $file = new class($fixture->getPathname(), 'source.'.$extension, null, UPLOAD_ERR_OK, true) extends UploadedFile
+            {
+                public function getRealPath(): string|false
+                {
+                    return false;
+                }
+            };
+            $this->assertTrue($file->isValid());
+            $this->assertTrue($file->isReadable());
+            $queued = $this->post('/api/v1/documents/'.$documentGuid.'/imports', [
+                'file' => $file, 'replace_editor_data' => '1', 'editor_revision' => $extension === 'pdf' ? 1 : 2,
+            ], ['Accept' => 'application/json'])->assertAccepted()->assertJsonPath('data.conversion_status', 'queued');
+            $version = DocumentVersion::where('guid', $queued->json('data.guid'))->firstOrFail();
+            $disk = Storage::disk('local');
+            $this->assertSame($bytes, $disk->get($version->source_path));
+            $this->assertStringStartsWith('documents/'.$documentGuid.'/sources/', $version->source_path);
+            if ($oldPath !== null) {
+                $disk->assertMissing($oldPath);
+            }
+            $oldPath = $version->source_path;
+
+            $this->app->make(DocumentConversionService::class)->convert($version->guid, $version->conversion_generation);
+            $converted = $this->getJson('/api/v1/versions/'.$version->guid)
+                ->assertOk()->assertJsonPath('data.conversion_status', 'ready')
+                ->assertJsonPath('data.conversion_error_code', null);
+            $this->assertStringContainsString($extension === 'pdf' ? 'First page editable' : 'Judul kontrak',
+                $converted->json('data.editor_data.blocks.0.data.text'));
+            $this->assertSame($extension === 'pdf' ? 2 : 3, $converted->json('data.editor_revision'));
+            $this->assertCount(1, $disk->allFiles());
+        }
+    }
 
     public function test_pdf_import_becomes_editable_and_save_uses_latest_revision(): void
     {

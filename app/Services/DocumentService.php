@@ -145,7 +145,7 @@ class DocumentService
         $disk = Storage::disk(config('documents.disk'));
         $newPath = $disk->putFileAs(
             "documents/{$document->guid}/sources",
-            $file,
+            $file->getPathname(),
             Str::random(40).'.'.$type->value,
             ['visibility' => 'private'],
         );

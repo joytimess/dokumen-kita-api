@@ -9,9 +9,12 @@ use App\Models\DocumentVersion;
 use App\Models\SignaturePlaceholder;
 use App\Models\SignerAssignment;
 use App\Models\User;
+use App\Services\SourceFileInspector;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Testing\File;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 use ZipArchive;
 
@@ -486,6 +489,64 @@ class DocumentApiTest extends TestCase
         $this->actingAs($owner)->postJson($url, ['file' => UploadedFileFactory::content('big.pdf', "%PDF-1.4\n".str_repeat('a', 5000))])->assertUnprocessable();
 
         $this->assertNull($version->fresh()->source_path);
+        $this->assertSame([], Storage::disk('local')->allFiles());
+    }
+
+    public function test_missing_temporary_source_is_a_controlled_validation_error(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'missing-import-');
+        $file = new UploadedFile($path, 'source.pdf', null, UPLOAD_ERR_OK, true);
+        unlink($path);
+
+        try {
+            $this->app->make(SourceFileInspector::class)->inspect($file);
+            $this->fail('A missing upload must be rejected.');
+        } catch (ValidationException $exception) {
+            $this->assertSame(['file' => ['Berkas unggahan tidak tersedia atau tidak dapat dibaca.']], $exception->errors());
+        }
+    }
+
+    public function test_import_rejects_failed_uploads_and_unsafe_docx_archives_without_changing_the_draft(): void
+    {
+        Storage::fake('local');
+        $owner = User::factory()->create();
+        $version = $this->ownedDraft($owner);
+        $before = $version->fresh()->getAttributes();
+        $url = '/api/v1/documents/'.$version->document_guid.'/imports';
+        $fixture = $this->pdf();
+        $this->actingAs($owner)->post($url, [
+            'file' => new UploadedFile($fixture->getPathname(), 'source.pdf', null, UPLOAD_ERR_PARTIAL, true),
+        ], ['Accept' => 'application/json'])->assertUnprocessable()->assertJsonPath('error.code', 'VALIDATION_FAILED');
+
+        $this->post($url, ['file' => UploadedFileFactory::content('broken.docx', "PK\x03\x04invalid")],
+            ['Accept' => 'application/json'])->assertUnprocessable();
+
+        foreach (['structure', 'entries', 'size'] as $limit) {
+            $path = tempnam(sys_get_temp_dir(), 'unsafe-docx-');
+            $zip = new ZipArchive;
+            $zip->open($path, ZipArchive::OVERWRITE);
+            $zip->addFromString('[Content_Types].xml', '<Types/>');
+            if ($limit !== 'structure') {
+                $zip->addFromString('word/document.xml', '<document/>');
+            }
+            if ($limit === 'entries') {
+                for ($i = 0; $i < 2000; $i++) {
+                    $zip->addFromString('entry'.$i, '');
+                }
+            }
+            $zip->close();
+            $bytes = file_get_contents($path);
+            unlink($path);
+            if ($limit === 'size') {
+                // Advertise an oversized uncompressed entry without allocating a ZIP bomb.
+                $offset = strpos($bytes, "PK\x01\x02");
+                $bytes = substr_replace($bytes, pack('V', 209_715_201), $offset + 24, 4);
+            }
+            $this->post($url, ['file' => UploadedFileFactory::content('unsafe.docx', $bytes)],
+                ['Accept' => 'application/json'])->assertUnprocessable()->assertJsonPath('error.code', 'VALIDATION_FAILED');
+        }
+
+        $this->assertSame($before, $version->fresh()->getAttributes());
         $this->assertSame([], Storage::disk('local')->allFiles());
     }
 }

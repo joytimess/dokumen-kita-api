@@ -29,7 +29,9 @@ class ProfileService
 
     public function storePhoto(User $user, UploadedFile $file): User
     {
-        $contents = file_get_contents($file->getRealPath());
+        $path = $file->getPathname();
+        $contents = $file->isValid() && $path !== '' && is_file($path) && is_readable($path)
+            ? @file_get_contents($path) : false;
         $image = $contents === false ? false : @getimagesizefromstring($contents);
         $types = [IMAGETYPE_JPEG => 'jpg', IMAGETYPE_PNG => 'png', IMAGETYPE_WEBP => 'webp'];
 

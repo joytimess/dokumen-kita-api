@@ -11,6 +11,7 @@ use App\Services\SignatureAssetService;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -47,7 +48,7 @@ class SignatureImageValidationTest extends TestCase
     {
         $this->mock(SignatureImageClassifierInterface::class)->shouldReceive('classify')->once()->andReturn($result);
         $response = $this->actingAs(User::factory()->create())->postJson('/api/v1/signature-assets', [
-            'file' => $this->signatureImage(), 'source_type' => $source,
+            'file' => UploadedFileFactory::withoutRealPath($this->signatureImage()), 'source_type' => $source,
         ])->assertUnprocessable()->assertJsonStructure(['error' => ['errors' => ['file']]]);
         $response->assertJsonPath('error.code', $result === SignatureImageClassification::NonSignature ? 'SIGNATURE_IMAGE_NOT_SIGNATURE' : 'SIGNATURE_IMAGE_UNCERTAIN');
         if ($result === SignatureImageClassification::NonSignature) {
@@ -69,7 +70,7 @@ class SignatureImageValidationTest extends TestCase
     {
         $this->mock(SignatureImageClassifierInterface::class)->shouldReceive('classify')->once()->andThrow($exception);
         $response = $this->actingAs(User::factory()->create())->postJson('/api/v1/signature-assets', [
-            'file' => $this->signatureImage(), 'source_type' => 'upload',
+            'file' => UploadedFileFactory::withoutRealPath($this->signatureImage()), 'source_type' => 'upload',
         ])->assertStatus(503)->assertJsonPath('error.code', 'SIGNATURE_CLASSIFIER_UNAVAILABLE');
         $this->assertStringNotContainsString('secret', $response->getContent());
         $this->assertNothingStored();
@@ -146,6 +147,42 @@ class SignatureImageValidationTest extends TestCase
         } catch (ApiException $e) {
             $this->assertSame('SIGNATURE_IMAGE_INVALID', $e->errorCode);
         }
+        $this->assertNothingStored();
+    }
+
+    public function test_dimension_limits_still_reject_readable_uploads_without_realpath_before_classification(): void
+    {
+        $this->mock(SignatureImageClassifierInterface::class)->shouldNotReceive('classify');
+        $this->actingAs(User::factory()->create());
+
+        foreach ([[15, 60], [120, 15], [2049, 60], [120, 1025]] as [$width, $height]) {
+            $this->post('/api/v1/signature-assets', [
+                'file' => UploadedFileFactory::withoutRealPath($this->signatureImage('ink', 'png', $width, $height)),
+                'source_type' => 'drawn',
+            ], ['Accept' => 'application/json'])->assertUnprocessable()->assertJsonPath('error.code', 'VALIDATION_FAILED')
+                ->assertJsonStructure(['error' => ['errors' => ['file']]]);
+        }
+
+        $this->assertNothingStored();
+    }
+
+    public function test_missing_or_failed_uploads_are_controlled_for_direct_service_calls(): void
+    {
+        $this->mock(SignatureImageClassifierInterface::class)->shouldNotReceive('classify');
+        $path = tempnam(sys_get_temp_dir(), 'missing-signature-');
+        $missing = new UploadedFile($path, 'signature.png', null, UPLOAD_ERR_OK, true);
+        unlink($path);
+        $user = User::factory()->create();
+
+        foreach ([$missing, new UploadedFile('', 'signature.png', null, UPLOAD_ERR_NO_FILE, true)] as $file) {
+            try {
+                $this->app->make(SignatureAssetService::class)->store($user, $file, 'upload');
+                $this->fail('Unavailable uploads must be rejected.');
+            } catch (ApiException $exception) {
+                $this->assertSame('SIGNATURE_IMAGE_INVALID', $exception->errorCode);
+            }
+        }
+
         $this->assertNothingStored();
     }
 

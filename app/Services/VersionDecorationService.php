@@ -80,8 +80,10 @@ class VersionDecorationService
     /** @return array{path: string, mime: string, width: int, height: int} */
     private function storeImage(DocumentVersion $version, UploadedFile $file): array
     {
-        $bytes = file_get_contents($file->getRealPath());
-        $info = @getimagesizefromstring($bytes);
+        $path = $file->getPathname();
+        $bytes = $file->isValid() && $path !== '' && is_file($path) && is_readable($path)
+            ? @file_get_contents($path) : false;
+        $info = $bytes === false ? false : @getimagesizefromstring($bytes);
         if ($info === false || ! in_array($info[2], [IMAGETYPE_PNG, IMAGETYPE_JPEG, IMAGETYPE_WEBP], true)
             || $info[0] > config('documents.page_decorations.max_width')
             || $info[1] > config('documents.page_decorations.max_height')) {

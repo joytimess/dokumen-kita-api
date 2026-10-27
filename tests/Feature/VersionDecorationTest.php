@@ -45,7 +45,7 @@ class VersionDecorationTest extends TestCase
         $this->actingAs($other)->post($url, ['editor_revision' => 1, 'file' => UploadedFile::fake()->image('kop.png')], ['Accept' => 'application/json'])->assertNotFound();
         $uploaded = $this->actingAs($owner)->post($url, [
             'editor_revision' => 1,
-            'file' => UploadedFile::fake()->image('kop.png', 400, 80),
+            'file' => UploadedFileFactory::withoutRealPath(UploadedFile::fake()->image('kop.png', 400, 80)),
             'pages' => ['mode' => 'range', 'ranges' => [[3, 4], [1, 1]]],
         ], ['Accept' => 'application/json'])->assertOk()
             ->assertJsonPath('data.editor_revision', 2)
@@ -82,7 +82,7 @@ class VersionDecorationTest extends TestCase
         $url = "/api/v1/versions/{$version->guid}/decorations/footer";
 
         $this->actingAs($owner)->post($url, [
-            'editor_revision' => 1, 'file' => UploadedFile::fake()->image('footer.png', 1201, 50),
+            'editor_revision' => 1, 'file' => UploadedFileFactory::withoutRealPath(UploadedFile::fake()->image('footer.png', 1201, 50)),
         ], ['Accept' => 'application/json'])->assertUnprocessable()->assertJsonPath('error.code', 'VALIDATION_FAILED');
         $this->post($url, [
             'editor_revision' => 1, 'file' => UploadedFile::fake()->createWithContent('footer.png', 'not an image'),

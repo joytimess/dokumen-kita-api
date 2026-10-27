@@ -37,8 +37,16 @@ class SourceFileInspector
 
     private function detect(UploadedFile $file): SourceType
     {
-        $path = $file->getRealPath();
-        $head = (string) file_get_contents($path, false, null, 0, 1024);
+        // Windows upload temp directories may be readable without being resolvable by realpath().
+        $path = $file->getPathname();
+        if (! $file->isValid() || $path === '' || ! is_file($path) || ! is_readable($path)) {
+            throw ValidationException::withMessages(['file' => ['Berkas unggahan tidak tersedia atau tidak dapat dibaca.']]);
+        }
+
+        $head = @file_get_contents($path, false, null, 0, 1024);
+        if ($head === false) {
+            throw ValidationException::withMessages(['file' => ['Berkas unggahan tidak tersedia atau tidak dapat dibaca.']]);
+        }
 
         if (str_contains($head, '%PDF-')) {
             $this->assertPdfNotEncrypted($path);

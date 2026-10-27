@@ -91,7 +91,7 @@ class ProfileApiTest extends TestCase
         foreach ([['jpg', 1, 1], ['jpeg', 3000, 20], ['png', 20, 3000], ['webp', 120, 120]] as [$format, $width, $height]) {
             $oldPath = $user->fresh()->profile_photo_path;
             $this->actingAs($user)->post('/api/v1/me/photo', [
-                'photo' => UploadedFile::fake()->image('avatar.'.$format, $width, $height),
+                'photo' => UploadedFileFactory::withoutRealPath(UploadedFile::fake()->image('avatar.'.$format, $width, $height)),
             ])->assertOk()->assertJsonPath('data.guid', $user->guid)
                 ->assertJsonPath('data.photo_url', route('me.photo'));
 

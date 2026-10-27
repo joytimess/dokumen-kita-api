@@ -36,7 +36,9 @@ class SignatureAssetService
     public function store(User $actor, UploadedFile $file, string $sourceType): SignatureAsset
     {
         $maxBytes = (int) config('documents.signature_assets.max_kilobytes') * 1024;
-        $bytes = $file->isValid() ? file_get_contents($file->getRealPath(), false, null, 0, $maxBytes + 1) : false;
+        $path = $file->getPathname();
+        $bytes = $file->isValid() && $path !== '' && is_file($path) && is_readable($path)
+            ? @file_get_contents($path, false, null, 0, $maxBytes + 1) : false;
         if ($bytes === false || strlen($bytes) > $maxBytes || ! in_array($sourceType, ['drawn', 'upload'], true)) {
             throw new ApiException(422, 'SIGNATURE_IMAGE_INVALID', 'Gambar tanda tangan tidak valid.', ['file' => ['Berkas gambar tidak valid atau terlalu besar.']]);
         }
