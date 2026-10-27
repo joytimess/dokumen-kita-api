@@ -16,7 +16,7 @@ class QrResponseHeaders
     public function handle(Request $request, Closure $next): Response
     {
         $response = $next($request);
-        if (! $request->is('api/v1/signing-qr/*', 'api/v1/versions/*/signing-qr', 'api/v1/versions/*/signing-qr.svg')) {
+        if (! $request->is('api/v1/signing-qr/*', 'api/v1/versions/*/signing-qr')) {
             return $response;
         }
 

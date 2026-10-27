@@ -21,8 +21,12 @@ class OwnerSigningQrController extends Controller
         private readonly QrSvgService $svg,
     ) {}
 
-    public function show(Request $request, DocumentVersion $version): JsonResponse
+    public function show(Request $request, DocumentVersion $version): JsonResponse|Response
     {
+        if (! $request->wantsJson()) {
+            return $this->image($request, $version);
+        }
+
         $metadata = $this->metadata($version);
 
         return response()->json([

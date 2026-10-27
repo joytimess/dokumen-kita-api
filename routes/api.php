@@ -116,8 +116,7 @@ Route::prefix('v1')->middleware(BlockBrowserNavigation::class)->group(function (
         });
 
         Route::prefix('versions')->group(function (): void {
-            Route::get('{version}/signing-qr', [OwnerSigningQrController::class, 'show']);
-            Route::get('{version}/signing-qr.svg', [OwnerSigningQrController::class, 'image'])->withoutMiddleware(BlockBrowserNavigation::class)->name('versions.signing-qr.image');
+            Route::get('{version}/signing-qr', [OwnerSigningQrController::class, 'show'])->withoutMiddleware(BlockBrowserNavigation::class)->name('versions.signing-qr.image');
             Route::get('{version}', [DocumentVersionController::class, 'show']);
             Route::get('{version}/ocr', [DocumentOcrController::class, 'show']);
             Route::post('{version}/ocr', [DocumentOcrController::class, 'store'])->middleware('throttle:10,1');

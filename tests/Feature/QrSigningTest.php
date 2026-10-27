@@ -64,18 +64,20 @@ class QrSigningTest extends TestCase
         foreach ([$signer, User::factory()->create()] as $user) {
             $expected = $user->is($signer) ? 403 : 404;
             $this->actingAs($user)->getJson($url)->assertStatus($expected);
-            $this->getJson($url.'.svg')->assertStatus($expected);
+            $this->get($url, ['Accept' => 'image/svg+xml'])->assertStatus($expected);
         }
         $this->actingAs($owner)->getJson($url)->assertOk()->assertJsonPath('data.status', 'active')
-            ->assertJsonPath('data.signing_url', rtrim(config('app.frontend_url'), '/').'/sign/qr/'.$this->token($version));
-        $image = $this->get($url.'.svg')->assertOk()->assertHeader('Content-Type', 'image/svg+xml; charset=UTF-8')
+            ->assertJsonPath('data.signing_url', rtrim(config('app.frontend_url'), '/').'/sign/qr/'.$this->token($version))
+            ->assertJsonPath('data.svg_url', url($url));
+        $image = $this->get($url, ['Accept' => 'image/svg+xml'])->assertOk()->assertHeader('Content-Type', 'image/svg+xml; charset=UTF-8')
             ->assertHeader('X-Content-Type-Options', 'nosniff')->assertHeader('Referrer-Policy', 'no-referrer');
         $this->assertStringContainsString('no-store', $image->headers->get('Cache-Control'));
+        $this->assertStringContainsString('private', $image->headers->get('Cache-Control'));
         $xml = simplexml_load_string($image->getContent());
         $this->assertNotFalse($xml);
         $this->assertSame('svg', $xml->getName());
-        $this->assertSame($image->getContent(), $this->get($url.'.svg')->assertOk()->getContent());
-        $download = $this->get($url.'.svg?download=1')->assertOk();
+        $this->assertSame($image->getContent(), $this->get($url)->assertOk()->getContent());
+        $download = $this->get($url.'?download=1', ['Accept' => 'image/svg+xml'])->assertOk();
         $this->assertStringContainsString('attachment', $download->headers->get('Content-Disposition'));
         $this->assertSame($image->getContent(), $download->getContent());
     }
@@ -90,7 +92,7 @@ class QrSigningTest extends TestCase
         $this->assertStringContainsString('no-store', $response->headers->get('Cache-Control'));
         $this->postJson(self::CLAIM, ['token' => $this->token($version)])->assertUnauthorized();
         $this->getJson("/api/v1/versions/{$version->guid}/signing-qr")->assertUnauthorized();
-        $this->getJson("/api/v1/versions/{$version->guid}/signing-qr.svg")->assertUnauthorized();
+        $this->get("/api/v1/versions/{$version->guid}/signing-qr", ['Accept' => 'image/svg+xml'])->assertUnauthorized();
     }
 
     public function test_invalid_token_never_exposes_document_data(): void
