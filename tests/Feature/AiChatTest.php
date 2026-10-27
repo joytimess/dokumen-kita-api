@@ -59,7 +59,7 @@ class AiChatTest extends TestCase
         $candidate = $this->candidate();
         Http::fake([self::ENDPOINT => Http::response(self::completion(json_encode(['answer_id' => $candidate['id']])))]);
         $this->actingAs(User::factory()->create())->postJson('/api/v1/ai/chat', compact('message', 'locale'))
-            ->assertOk()->assertJsonPath('data.reply', $candidate['answer'][$locale])
+            ->assertOk()->assertJsonPath('data.reply', app(SupportKnowledgeBase::class)->answer($candidate, $message, $locale))
             ->assertJsonPath('data.locale', $locale)
             ->assertJsonPath('data.suggested_questions', app(SupportKnowledgeBase::class)->suggestions($locale))
             ->assertHeader('Cache-Control', 'no-store, private')
@@ -72,14 +72,15 @@ class AiChatTest extends TestCase
     {
         $knowledge = app(SupportKnowledgeBase::class);
         $entries = array_column(require resource_path('knowledge/support.php'), null, 'id');
-        Http::fake([self::ENDPOINT => Http::response(self::completion(json_encode(['answer_id' => $answerId])))]);
+        Http::fake([self::ENDPOINT => Http::response(self::completion(json_encode($answerId === null ? ['tool' => 'clarify', 'arguments' => (object) []] : ['answer_id' => $answerId])))]);
 
         $this->actingAs(User::factory()->create())->postJson('/api/v1/ai/chat', compact('message', 'locale'))
-            ->assertOk()->assertJsonPath('data.reply', $answerId === null ? $knowledge->fallback($locale) : $entries[$answerId]['answer'][$locale])
+            ->assertOk()->assertJsonPath('data.reply', $answerId === null ? $knowledge->fallback($locale) : $knowledge->answer($entries[$answerId], $message, $locale))
             ->assertJsonPath('data.locale', $locale);
 
         if ($answerId === null) {
-            Http::assertNothingSent();
+            // Non-exact questions now pass through the bounded intent router; injection guards may stop them locally.
+            $this->assertLessThanOrEqual(1, Http::recorded()->count());
         } else {
             Http::assertSent(function (Request $request) use ($message, $answerId, $entries, $locale): bool {
                 $this->assertSame([
@@ -100,7 +101,7 @@ class AiChatTest extends TestCase
         Http::fake([self::ENDPOINT => Http::response(self::completion('{"answer_id":"sign_document"}'))]);
 
         $this->actingAs(User::factory()->create())->postJson('/api/v1/ai/chat', compact('message'))
-            ->assertOk()->assertJsonPath('data.reply', $candidate['answer']['id']);
+            ->assertOk()->assertJsonPath('data.reply', app(SupportKnowledgeBase::class)->answer($candidate, $message, 'id'));
 
         Http::assertSent(function (Request $request) use ($candidate, $message): bool {
             $this->assertSame([
@@ -200,12 +201,12 @@ class AiChatTest extends TestCase
     }
 
     #[DataProvider('unsupportedMessages')]
-    public function test_unsupported_messages_return_fallback_without_groq(string $message, string $locale): void
+    public function test_unsupported_messages_return_fallback_after_safe_routing(string $message, string $locale): void
     {
-        Http::fake();
+        Http::fake([self::ENDPOINT => Http::response(self::completion('{"tool":"clarify","arguments":{}}'))]);
         $this->actingAs(User::factory()->create())->postJson('/api/v1/ai/chat', compact('message', 'locale'))
             ->assertOk()->assertJsonPath('data.reply', app(SupportKnowledgeBase::class)->fallback($locale));
-        Http::assertNothingSent();
+        $this->assertLessThanOrEqual(1, Http::recorded()->count());
     }
 
     public static function invalidPayloads(): array
@@ -218,6 +219,8 @@ class AiChatTest extends TestCase
             'message array' => [['message' => ['text' => self::MESSAGE]]],
             'invalid locale' => [['message' => self::MESSAGE, 'locale' => 'fr']],
             'locale null' => [['message' => self::MESSAGE, 'locale' => null]],
+            'context array' => [['message' => self::MESSAGE, 'context' => ['forged' => true]]],
+            'context too long' => [['message' => self::MESSAGE, 'context' => str_repeat('a', 12001)]],
             'history scalar' => [['message' => self::MESSAGE, 'history' => 'invalid']],
             'history object' => [['message' => self::MESSAGE, 'history' => ['role' => 'user', 'content' => 'hello']]],
             'history not list' => [['message' => self::MESSAGE, 'history' => [1 => ['role' => 'user', 'content' => 'hello']]]],
@@ -315,7 +318,7 @@ class AiChatTest extends TestCase
     public function test_provider_failures_are_sanitized_and_not_retried(int $status, array|string $body): void
     {
         Http::fake([self::ENDPOINT => Http::response($body, $status)]);
-        $response = $this->actingAs(User::factory()->create())->postJson('/api/v1/ai/chat', ['message' => self::MESSAGE, 'locale' => 'en'])
+        $response = $this->actingAs(User::factory()->create())->postJson('/api/v1/ai/chat', ['message' => 'How do I sign a document?', 'locale' => 'en'])
             ->assertOk()->assertJsonPath('data.reply', app(SupportKnowledgeBase::class)->unavailable('en'));
         foreach (['test-chat-secret-key', 'private-provider-response', 'api.groq.com'] as $secret) {
             $this->assertStringNotContainsString($secret, $response->getContent());

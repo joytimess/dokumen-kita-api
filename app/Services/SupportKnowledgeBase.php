@@ -4,6 +4,65 @@ namespace App\Services;
 
 class SupportKnowledgeBase
 {
+    public function answer(array $entry, string $message, string $locale): string
+    {
+        if (preg_match('/\b(detail|details|rinci|terperinci|lengkap|mendalam|in depth|step by step|langkah demi langkah)\b/iu', $message)) {
+            return $entry['answer'][$locale];
+        }
+        $followUp = $this->emailFollowUp($message, $entry['id']);
+        if ($followUp !== null) {
+            return $followUp['answer'][$locale];
+        }
+        $facets = match ($entry['id']) {
+            'login' => ['/\b(logout|log out|keluar|mengakhiri sesi)\b/iu' => [3], '/\b(salah|incorrect|tidak bisa|can not)\b/iu' => [2]],
+            'email_verification' => ['/\b(ulang|resend|another|belum|tidak|not)\b/iu' => [1]],
+            'import_document' => ['/\b(tata letak|layout)\b/iu' => [4], '/\b(konfirmasi|confirmation|replac|penggantian)/iu' => [2]],
+            'editor_autosave' => ['/\b(konflik|conflict|sesi lain|another session)\b/iu' => [1]],
+            'publish_invitation' => ['/\b(ulang|resend)\b/iu' => [2]],
+            'claim_invitation' => ['/\b(kedaluwarsa|expired|dicabut|revoked)\b/iu' => [2]],
+            'sign_document' => ['/\b(konfirmasi baca|confirm reading|baca semua halaman|read all pages)\b/iu' => [1]],
+            'signature_assets' => ['/\b(hapus|menghapus|delete|deleted)\b/iu' => [3], '/\b(kosong|blank|ditolak|rejected)\b/iu' => [1]],
+            'signing_history' => ['/\b(snapshot)\b/iu' => [3]],
+            'profile' => ['/\b(google|password|kata sandi)\b/iu' => [3], '/\b(email)\b/iu' => [2, 3], '/\b(foto|photo|picture)\b/iu' => [0, 1]],
+            default => [],
+        };
+        foreach ($facets as $pattern => $indices) {
+            if (preg_match($pattern, $message)) {
+                $sentences = preg_split('/(?<=[.!?])\s+/u', $entry['answer'][$locale]);
+
+                return implode(' ', array_map(fn ($index) => $sentences[$index], $indices));
+            }
+        }
+        $entries = array_column(require resource_path('knowledge/support.php'), null, 'id');
+
+        return $entries[$entry['id']]['concise_answer'][$locale];
+    }
+
+    public function emailFollowUp(string $message, ?string $topic): ?array
+    {
+        $message = $this->normalize($message);
+        $missing = preg_match('/\A(?:(?:kalau|jika|kok) )?(?:email(?:nya)?|undangan(?:nya)?|email undangan) (?:belum|tidak) (?:masuk|sampai|diterima)\z/u', $message)
+            || preg_match('/\A(?:(?:what if|if) )?(?:(?:the|my) )?(?:email|invitation email|invitation) (?:has not arrived|hasn t arrived|did not arrive|is not here)\z/u', $message);
+        $receiving = preg_match('/\A(?:apakah )?(?:nanti )?saya (?:akan )?(?:mendapatkan|menerima|dapat) email(?: juga)?\z/u', $message)
+            || preg_match('/\A(?:will i (?:receive|get) (?:an? )?email(?: then| too)?|apa perlu email juga)\z/u', $message);
+        if (! $missing && ! $receiving) {
+            return null;
+        }
+        $topic = match ($topic) {
+            'sign_document', 'claim_invitation', 'signing_order', 'publish_invitation' => 'publish_invitation',
+            'registration', 'email_verification' => 'registration',
+            default => null,
+        };
+        if ($topic === null) {
+            return null;
+        }
+        $entries = array_column(require resource_path('knowledge/support.php'), null, 'id');
+        $entry = $entries[$topic];
+        $entry['answer'] = $entry[$missing ? 'missing_email_answer' : 'email_answer'];
+
+        return $entry;
+    }
+
     /** @return list<array{id: string, answer: array{id: string, en: string}, question: array{id: string, en: string}}> */
     public function retrieve(string $message): array
     {

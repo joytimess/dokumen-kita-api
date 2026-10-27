@@ -4,6 +4,18 @@
 return [
     [
         'id' => 'registration',
+        'concise_answer' => [
+            'id' => 'Daftar dengan nama, email, kata sandi, dan konfirmasinya. Setelah itu, buka tautan verifikasi yang dikirim ke email kamu.',
+            'en' => 'Register with your name, email, password, and password confirmation. Then open the verification link sent to your email.',
+        ],
+        'email_answer' => [
+            'id' => 'Iya, setelah mendaftar kamu akan menerima email verifikasi akun.',
+            'en' => 'Yes, you will receive an account verification email after registering.',
+        ],
+        'missing_email_answer' => [
+            'id' => 'Coba cek folder spam. Kalau belum ada, login lalu minta pengiriman ulang email verifikasi.',
+            'en' => 'Check your spam folder. If it is still missing, log in and request another verification email.',
+        ],
         'module' => 'authentication',
         'sources' => ['app/Services/AuthService.php', 'app/Http/Requests/Auth/RegisterRequest.php', 'tests/Feature/AuthApiTest.php'],
         'aliases' => [
@@ -18,6 +30,10 @@ return [
     ],
     [
         'id' => 'login',
+        'concise_answer' => [
+            'id' => 'Masuk dengan email dan kata sandi akun kamu, atau gunakan login Google.',
+            'en' => 'Log in with your account email and password, or use Google sign-in.',
+        ],
         'module' => 'authentication',
         'sources' => ['app/Services/AuthService.php', 'routes/api.php', 'tests/Feature/AuthApiTest.php', 'tests/Feature/GoogleAuthTest.php'],
         'aliases' => [
@@ -35,6 +51,10 @@ return [
     ],
     [
         'id' => 'email_verification',
+        'concise_answer' => [
+            'id' => 'Buka tautan di email verifikasi; kalau perlu, minta pengiriman ulang setelah login. Email harus terverifikasi sebelum kamu mengklaim undangan atau menandatangani dokumen.',
+            'en' => 'Open the link in your verification email; you can request another after logging in. Verify your email before claiming an invitation or signing a document.',
+        ],
         'module' => 'authentication',
         'sources' => ['app/Http/Controllers/Api/V1/EmailVerificationController.php', 'app/Services/VersionWorkflow.php', 'tests/Feature/AuthApiTest.php'],
         'aliases' => [
@@ -51,6 +71,10 @@ return [
     ],
     [
         'id' => 'password_reset',
+        'concise_answer' => [
+            'id' => 'Gunakan lupa kata sandi, verifikasi OTP dari email, lalu masukkan kata sandi baru beserta konfirmasinya. Alur ini tidak tersedia untuk akun khusus Google yang belum memiliki kata sandi.',
+            'en' => 'Use forgot password, verify the emailed OTP, then enter and confirm your new password. This flow is unavailable for Google-only accounts without a password.',
+        ],
         'module' => 'authentication',
         'sources' => ['app/Services/PasswordResetService.php', 'tests/Feature/PasswordResetOtpTest.php'],
         'aliases' => [
@@ -67,6 +91,10 @@ return [
     ],
     [
         'id' => 'dashboard',
+        'concise_answer' => [
+            'id' => 'Cari judul di daftar dokumen kamu, lalu gunakan filter status, kategori, atau visibilitas sesuai kebutuhan.',
+            'en' => 'Search by title in your document list, then filter by status, category, or visibility as needed.',
+        ],
         'module' => 'dashboard',
         'sources' => ['app/Services/DocumentService.php', 'app/Http/Requests/Document/ListDocumentsRequest.php', 'tests/Feature/DocumentVisibilityTest.php'],
         'aliases' => [
@@ -84,6 +112,10 @@ return [
     ],
     [
         'id' => 'document_categories',
+        'concise_answer' => [
+            'id' => 'Kamu bisa membuat dan mengubah kategori, lalu memasang atau melepasnya dari dokumen milikmu. Sebelum menghapus kategori yang masih dipakai, pindahkan atau lepaskan kategorinya dari dokumen terlebih dahulu.',
+            'en' => 'Create or edit categories and assign or remove them from your own documents. Before deleting a category in use, remove or change its document assignments.',
+        ],
         'module' => 'categories',
         'sources' => ['app/Services/DocumentCategoryService.php', 'app/Http/Controllers/Api/V1/DocumentCategoryController.php', 'tests/Feature/DocumentCategoryApiTest.php'],
         'aliases' => [
@@ -102,6 +134,10 @@ return [
     ],
     [
         'id' => 'create_document',
+        'concise_answer' => [
+            'id' => 'Buat dokumen dengan judul, lalu isi draft lewat editor atau impor PDF/DOCX. Sebelum publish, siapkan preview terbaru, penerima, urutan, dan posisi tanda tangannya.',
+            'en' => 'Create a document with a title, then edit the draft or import a PDF/DOCX. Before publishing, prepare the latest preview, recipients, signing order, and signature positions.',
+        ],
         'module' => 'documents',
         'sources' => ['app/Services/DocumentService.php', 'tests/Feature/DocumentApiTest.php'],
         'aliases' => [
@@ -116,6 +152,10 @@ return [
     ],
     [
         'id' => 'document_visibility',
+        'concise_answer' => [
+            'id' => 'Sembunyikan dokumen milikmu lewat pengaturan visibilitas, lalu gunakan filter dokumen tersembunyi untuk menemukannya kembali. Ini tidak menghapus dokumen atau membatalkan alur tanda tangan.',
+            'en' => 'Hide your document through visibility settings and use the hidden-document filter to find it again. Hiding does not delete the document or cancel signing.',
+        ],
         'module' => 'documents',
         'sources' => ['app/Services/DocumentService.php', 'tests/Feature/DocumentVisibilityTest.php'],
         'aliases' => [
@@ -132,6 +172,10 @@ return [
     ],
     [
         'id' => 'import_document',
+        'concise_answer' => [
+            'id' => 'Impor PDF atau DOCX ke draft terkini dan konfirmasi penggantian jika draft sudah berisi konten. Setelah konversi selesai, periksa isi dan tata letak, lalu buat preview terbaru dan tinjau posisi tanda tangan sebelum publish.',
+            'en' => 'Import a PDF or DOCX into the current draft and confirm replacement if it already has content. After conversion, review the content and layout, generate a fresh preview, and check signature positions before publishing.',
+        ],
         'module' => 'imports',
         'sources' => ['app/Services/DocumentService.php', 'app/Services/SourceFileInspector.php', 'tests/Feature/ImportConversionTest.php'],
         'aliases' => [
@@ -149,6 +193,10 @@ return [
     ],
     [
         'id' => 'editor_autosave',
+        'concise_answer' => [
+            'id' => 'Perubahan disimpan di draft terkini; muat ulang jika ada konflik revisi dari sesi lain. Setelah mengubah isi, buat preview baru dan tinjau kembali posisi tanda tangan.',
+            'en' => 'Changes are saved to the current draft; reload if another session caused a revision conflict. After changing content, generate a new preview and review signature positions.',
+        ],
         'module' => 'editor',
         'sources' => ['app/Services/DocumentService.php', 'app/Http/Requests/Document/UpdateVersionRequest.php', 'tests/Feature/DocumentApiTest.php'],
         'aliases' => [
@@ -164,6 +212,18 @@ return [
     ],
     [
         'id' => 'publish_invitation',
+        'concise_answer' => [
+            'id' => 'Siapkan draft, preview terbaru, penerima berurutan tanpa duplikasi email, dan posisi tanda tangan, lalu publish. Undangan disiapkan lewat email sesuai giliran penerima.',
+            'en' => 'Prepare the draft, current preview, ordered recipients without duplicate emails, and signature positions, then publish. Invitation emails are queued according to each recipient\'s turn.',
+        ],
+        'email_answer' => [
+            'id' => 'Iya, kamu akan menerima email undangan saat giliran tanda tanganmu aktif.',
+            'en' => 'Yes, you will receive an invitation email when your signing turn becomes active.',
+        ],
+        'missing_email_answer' => [
+            'id' => 'Coba cek folder spam. Kalau masih belum ada dan giliranmu sudah aktif, hubungi pemilik dokumen untuk memeriksa atau mengirim ulang undangan.',
+            'en' => 'Check your spam folder. If it is still missing and your turn is active, ask the document owner to check or resend the invitation.',
+        ],
         'module' => 'invitations',
         'sources' => ['app/Services/PublishService.php', 'app/Services/InvitationService.php', 'tests/Feature/PublishApiTest.php', 'tests/Feature/InvitationApiTest.php'],
         'aliases' => [
@@ -179,6 +239,10 @@ return [
     ],
     [
         'id' => 'claim_invitation',
+        'concise_answer' => [
+            'id' => 'Login dengan akun terverifikasi yang emailnya sesuai penerima, lalu buka tautan undangan yang masih berlaku saat giliranmu aktif. Jika tautannya kedaluwarsa atau dicabut, minta pemilik mengirim ulang saat giliranmu aktif.',
+            'en' => 'Log in with the verified recipient email and open a valid invitation link when your turn is active. If the link has expired or been revoked, ask the owner to resend it while your turn is active.',
+        ],
         'module' => 'invitations',
         'sources' => ['app/Services/InvitationService.php', 'tests/Feature/InvitationApiTest.php'],
         'aliases' => [
@@ -195,6 +259,10 @@ return [
     ],
     [
         'id' => 'signing_order',
+        'concise_answer' => [
+            'id' => 'Penerima menandatangani sesuai urutan yang ditetapkan pemilik; hanya penerima yang siap pada giliran aktif yang bisa menandatangani. Setelah selesai, penerima berikutnya diaktifkan dan undangannya disiapkan.',
+            'en' => 'Recipients sign in the order set by the owner; only the ready recipient on the active turn can sign. Once they finish, the next recipient is activated and their invitation is queued.',
+        ],
         'module' => 'signing',
         'sources' => ['app/Services/SigningSetupService.php', 'app/Services/SignatureService.php', 'tests/Feature/SigningSetupApiTest.php', 'tests/Feature/SignatureApiTest.php'],
         'aliases' => [
@@ -211,6 +279,10 @@ return [
     ],
     [
         'id' => 'sign_document',
+        'concise_answer' => [
+            'id' => 'Login dengan email penerima yang terverifikasi dan terima undangan aktif. Saat giliranmu siap, baca dan konfirmasikan preview terbaru, lalu pilih aset tanda tangan milikmu dan kirim tanda tangan.',
+            'en' => 'Log in with the verified recipient email and claim an active invitation. When your turn is ready, read and confirm the current preview, then choose your signature asset and submit your signature.',
+        ],
         'module' => 'signing',
         'sources' => ['app/Services/SignatureService.php', 'app/Services/ReadConfirmationService.php', 'tests/Feature/SignatureApiTest.php', 'tests/Feature/SignatureAuthorizationTest.php'],
         'aliases' => [
@@ -226,6 +298,10 @@ return [
     ],
     [
         'id' => 'signature_assets',
+        'concise_answer' => [
+            'id' => 'Gambar atau unggah tanda tangan dalam format PNG, JPG/JPEG, atau WebP; gambar kosong atau bukan tanda tangan akan ditolak. Aset bersifat privat dan tidak bisa dihapus setelah dipakai menandatangani.',
+            'en' => 'Draw or upload a signature as PNG, JPG/JPEG, or WebP; blank or non-signature images are rejected. Assets are private and cannot be deleted after being used to sign.',
+        ],
         'module' => 'signature_assets',
         'sources' => ['app/Services/SignatureAssetService.php', 'app/Http/Requests/Document/StoreSignatureAssetRequest.php', 'tests/Feature/SignatureAssetApiTest.php'],
         'aliases' => [
@@ -242,6 +318,10 @@ return [
     ],
     [
         'id' => 'signing_history',
+        'concise_answer' => [
+            'id' => 'Buka riwayat pribadi untuk melihat aktivitas tanda tangan dan permintaan revisi akunmu. Kamu bisa mencari judul dokumen, memfilter tanggal, dan membuka detail yang tersedia.',
+            'en' => 'Open your personal history to see your signing and revision-request activity. Search by document title, filter by date, and open available details.',
+        ],
         'module' => 'history',
         'sources' => ['app/Http/Controllers/Api/V1/SigningHistoryController.php', 'app/Http/Requests/SigningHistoryRequest.php', 'tests/Feature/SigningHistoryApiTest.php'],
         'aliases' => [
@@ -259,6 +339,10 @@ return [
     ],
     [
         'id' => 'request_revision',
+        'concise_answer' => [
+            'id' => 'Saat giliranmu aktif dan belum menandatangani, ajukan revisi beserta alasannya. Undangan versi lama dicabut dan pemilik mendapat draft baru yang perlu preview, peninjauan posisi tanda tangan, serta persetujuan baru.',
+            'en' => 'Request a revision with a reason while your turn is active and before signing. Old invitations are revoked and the owner receives a new draft requiring a fresh preview, signature-position review, and new approvals.',
+        ],
         'module' => 'revisions',
         'sources' => ['app/Services/RevisionService.php', 'tests/Feature/RevisionWorkflowTest.php'],
         'aliases' => [
@@ -274,6 +358,10 @@ return [
     ],
     [
         'id' => 'reject_signing',
+        'concise_answer' => [
+            'id' => 'Saat giliranmu aktif dan belum menandatangani, kamu bisa menolak dengan alasan; versi dokumen menjadi ditolak dan undangannya dicabut. Penolakan ini tidak mencabut tanda tangan yang sudah dikirim.',
+            'en' => 'While your turn is active and before signing, you can reject with a reason; the version becomes rejected and its invitations are revoked. This does not revoke an already submitted signature.',
+        ],
         'module' => 'rejections',
         'sources' => ['app/Services/AssignmentRejectionService.php', 'routes/api.php', 'tests/Feature/SignerRejectionTest.php'],
         'aliases' => [
@@ -289,6 +377,10 @@ return [
     ],
     [
         'id' => 'final_pdf',
+        'concise_answer' => [
+            'id' => 'PDF final tersedia setelah penandatangan terakhir selesai dan finalisasi berhasil, menggunakan snapshot preview yang disetujui beserta tanda tangan. Kalau masih finalisasi, tunggu pemrosesan selesai; akses PDF tetap memerlukan izin.',
+            'en' => 'The final PDF becomes available after the last signer finishes and finalization succeeds, using the approved preview snapshot and signatures. If it is still finalizing, wait for processing; PDF access still requires permission.',
+        ],
         'module' => 'final_pdf',
         'sources' => ['app/Services/DocumentPipelineService.php', 'app/Http/Controllers/Api/V1/DocumentPdfController.php', 'tests/Feature/DocumentPipelineApiTest.php'],
         'aliases' => [
@@ -304,6 +396,10 @@ return [
     ],
     [
         'id' => 'profile',
+        'concise_answer' => [
+            'id' => 'Kamu bisa mengubah nama dan foto profil. Perubahan email atau kata sandi hanya tersedia untuk akun email/kata sandi tanpa identitas Google, dan email baru perlu diverifikasi.',
+            'en' => 'You can update your name and profile photo. Email and password changes require an email/password account without a Google identity, and a new email must be verified.',
+        ],
         'module' => 'profile',
         'sources' => ['app/Services/ProfileService.php', 'app/Http/Requests/UploadProfilePhotoRequest.php', 'tests/Feature/ProfileApiTest.php'],
         'aliases' => [

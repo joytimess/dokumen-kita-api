@@ -18,6 +18,11 @@ class AiChatResource extends ApiResource
             'reply' => $this->resource['reply'],
             'locale' => $this->resource['locale'],
             'suggested_questions' => $this->resource['suggested_questions'],
+            'references' => $this->resource['references'] ?? [],
+            'intent' => $this->resource['intent'] ?? 'support',
+            'results' => $this->resource['results'] ?? null,
+            'context' => $this->resource['context'] ?? null,
+            'show_references' => $this->resource['show_references'] ?? true,
         ];
     }
 
