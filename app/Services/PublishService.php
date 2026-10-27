@@ -74,13 +74,12 @@ class PublishService
             $locked->document->update(['status' => VersionStatus::InProgress]);
 
             foreach ($assignments as $assignment) {
-                $assignment->update(['status' => $assignment->sequence_number === 1 ? 'ready' : 'waiting']);
+                $assignment->update(['status' => $locked->signing_mode === 'parallel' || $assignment->sequence_number === 1 ? 'ready' : 'waiting']);
                 if ($assignment->status === 'ready') {
                     $this->invitations->issue($assignment);
                 }
             }
-            $ready = $assignments->firstWhere('status', 'ready');
-            if ($ready !== null) {
+            foreach ($assignments->where('status', 'ready') as $ready) {
                 $this->realtime->notifyOwner($locked, 'assignment.ready', $ready);
                 $this->realtime->notifyAssignment($locked, $ready, 'assignment.ready');
             }
@@ -89,6 +88,7 @@ class PublishService
                 'content_hash' => $locked->content_hash,
                 'manifest_hash' => $locked->manifest_hash,
                 'signer_count' => $assignments->count(),
+                'signing_mode' => $locked->signing_mode,
             ]);
 
             return $locked->setRelation('assignments', $assignments);

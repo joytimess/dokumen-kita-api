@@ -92,7 +92,9 @@ class SignatureService
                 ],
             ]);
 
-            $next = $assignments->firstWhere('sequence_number', $locked->sequence_number + 1);
+            $next = $version->signing_mode === 'parallel'
+                ? null
+                : $assignments->firstWhere('sequence_number', $locked->sequence_number + 1);
             if ($next !== null) {
                 if ($next->status !== 'waiting') {
                     throw ApiException::conflict('SIGNING_ORDER_CONFLICT', 'Urutan penandatangan tidak konsisten.');
@@ -101,7 +103,7 @@ class SignatureService
                 $this->invitations->revoke($next);
                 $this->invitations->issue($next);
                 $this->audit->record('assignment.activated', $version->document, $version, $actor, ['assignment_guid' => $next->guid]);
-            } else {
+            } elseif ($assignments->every(fn (SignerAssignment $assignment): bool => $assignment->status === 'signed')) {
                 $version->update(['status' => VersionStatus::Finalizing]);
                 $version->document->update(['status' => VersionStatus::Finalizing]);
                 EmailNotification::create([

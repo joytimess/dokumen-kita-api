@@ -14,6 +14,8 @@ class VersionSignerController extends Controller
 
     public function update(UpdateSignersRequest $request, DocumentVersion $version): DocumentVersionResource
     {
-        return new DocumentVersionResource($this->signing->updateSigners($request->user(), $version, $request->validated('signers')));
+        return new DocumentVersionResource($this->signing->updateSigners(
+            $request->user(), $version, $request->validated('signers'), $request->validated('signing_mode'),
+        ));
     }
 }

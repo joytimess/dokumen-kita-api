@@ -26,6 +26,11 @@ class DocumentVersionResource extends ApiResource
             'is_current' => $this->isCurrent(),
             'version_number' => $this->version_number,
             'status' => $this->status,
+            'signing_mode' => $this->signing_mode,
+            'signing_progress' => $this->when($isOwner && $this->relationLoaded('assignments'), fn (): array => [
+                'signed_count' => $this->assignments->where('status', 'signed')->count(),
+                'signer_count' => $this->assignments->count(),
+            ]),
             'preview_status' => $this->preview_status,
             'preview_source' => $this->when($isOwner, $this->preview_source),
             'preview_error_code' => $this->when($isOwner, $this->preview_error_code),

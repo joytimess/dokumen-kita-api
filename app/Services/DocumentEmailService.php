@@ -99,6 +99,7 @@ class DocumentEmailService
                     $email->payload['completed_at'] ?? null,
                     $email->payload['signed_count'] ?? null,
                     $email->payload['signer_count'] ?? null,
+                    $version->signing_mode,
                 ));
                 $email->fill(['status' => 'sent', 'sent_at' => now(), 'payload' => null, 'last_error_code' => null]);
             } catch (Throwable) {

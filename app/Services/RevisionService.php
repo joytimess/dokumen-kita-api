@@ -40,6 +40,10 @@ class RevisionService
             $requester->response()->create(['response_type' => 'revision_requested', 'reason' => $reason]);
             foreach ($assignments as $current) {
                 $this->invitations->revoke($current);
+                if ($version->signing_mode === 'parallel' && $current->guid !== $requester->guid
+                    && in_array($current->status, ['waiting', 'ready'], true)) {
+                    $current->update(['status' => 'cancelled']);
+                }
             }
             $requester->update(['status' => 'revision_requested']);
             $version->update(['status' => VersionStatus::RevisionRequested]);

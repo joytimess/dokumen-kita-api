@@ -38,7 +38,8 @@ class AssignmentRejectionService
             $locked->update(['status' => 'rejected']);
             foreach ($assignments as $current) {
                 $this->invitations->revoke($current);
-                if ($current->guid !== $locked->guid && $current->status === 'waiting') {
+                if ($current->guid !== $locked->guid
+                    && ($current->status === 'waiting' || ($version->signing_mode === 'parallel' && $current->status === 'ready'))) {
                     $current->update(['status' => 'cancelled']);
                 }
             }

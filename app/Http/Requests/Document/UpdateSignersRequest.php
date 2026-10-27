@@ -36,6 +36,7 @@ class UpdateSignersRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'signing_mode' => ['sometimes', 'required', 'string', 'in:sequential,parallel'],
             'signers' => ['present', 'array', 'list', 'max:'.config('documents.signing.max_signers')],
             'signers.*' => ['required', 'array:email,sequence_number'],
             'signers.*.email' => ['required', 'string', 'email:rfc', 'max:255', 'distinct'],

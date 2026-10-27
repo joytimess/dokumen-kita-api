@@ -99,7 +99,7 @@ class RealtimeNotificationService
 
         return match ($eventType) {
             'assignment.ready' => [
-                'title' => 'Giliran tanda tangan Anda',
+                'title' => $version->signing_mode === 'parallel' ? 'Tanda tangan Anda diminta' : 'Giliran tanda tangan Anda',
                 'message' => 'Anda diminta menandatangani '.$versionLabel.'.',
             ],
             'assignment.signed' => [

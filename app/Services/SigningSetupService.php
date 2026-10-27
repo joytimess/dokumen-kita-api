@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\ApiException;
 use App\Models\DocumentVersion;
 use App\Models\SignerAssignment;
 use App\Models\User;
@@ -17,12 +18,18 @@ class SigningSetupService
     ) {}
 
     /** @param list<array{email: string, sequence_number: int}> $signers */
-    public function updateSigners(User $actor, DocumentVersion $version, array $signers): DocumentVersion
+    public function updateSigners(User $actor, DocumentVersion $version, array $signers, ?string $signingMode = null): DocumentVersion
     {
-        return DB::transaction(function () use ($actor, $version, $signers): DocumentVersion {
+        return DB::transaction(function () use ($actor, $version, $signers, $signingMode): DocumentVersion {
             $locked = $this->workflow->lock($version);
             $this->workflow->assertDraft($locked);
             $this->workflow->assertCurrent($locked);
+            if ($locked->published_at !== null) {
+                throw ApiException::conflict('VERSION_NOT_EDITABLE', 'Versi yang sudah dipublikasikan tidak dapat diubah.');
+            }
+            if ($signingMode !== null) {
+                $locked->update(['signing_mode' => $signingMode]);
+            }
             $existing = $locked->assignments()->orderBy('sequence_number')->lockForUpdate()->get();
 
             $emails = array_column($signers, 'email');
@@ -53,7 +60,9 @@ class SigningSetupService
                 }
             }
 
-            $this->audit->record('version.signers_updated', $locked->document, $locked, $actor, ['signer_count' => count($signers)]);
+            $this->audit->record('version.signers_updated', $locked->document, $locked, $actor, [
+                'signer_count' => count($signers), 'signing_mode' => $locked->signing_mode,
+            ]);
 
             return $locked->load('assignments.placeholders');
         });

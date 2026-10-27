@@ -18,6 +18,7 @@ class DocumentWorkflowNotification extends Notification
         public ?string $completedAt = null,
         public ?int $signedCount = null,
         public ?int $signerCount = null,
+        public string $signingMode = 'sequential',
     ) {}
 
     /** @return list<string> */
@@ -29,7 +30,9 @@ class DocumentWorkflowNotification extends Notification
     public function toMail(object $notifiable): MailMessage
     {
         $description = match ($this->type) {
-            'invitation_ready' => 'Giliran Anda untuk membaca dan menandatangani dokumen.',
+            'invitation_ready' => $this->signingMode === 'parallel'
+                ? 'Anda dapat membaca dan menandatangani dokumen tanpa menunggu penandatangan lain.'
+                : 'Giliran Anda untuk membaca dan menandatangani dokumen.',
             'invitation_waiting' => 'Anda diundang sebagai penandatangan. Silakan klaim undangan; giliran Anda belum aktif.',
             'version_completed' => 'Semua persetujuan selesai dan PDF final sudah tersedia.',
             'revision_requested' => 'Penandatangan meminta revisi. Penandatanganan dijeda sampai pemilik merevisi dan memublikasikan versi baru.',
