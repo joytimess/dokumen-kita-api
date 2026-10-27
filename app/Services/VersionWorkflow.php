@@ -8,6 +8,7 @@ use App\Models\Document;
 use App\Models\DocumentVersion;
 use App\Models\SignerAssignment;
 use App\Models\User;
+use Illuminate\Support\Str;
 
 class VersionWorkflow
 {
@@ -38,7 +39,8 @@ class VersionWorkflow
 
     public function assertSigner(User $actor, SignerAssignment $assignment): void
     {
-        if ($assignment->user_guid !== $actor->guid) {
+        if ($assignment->user_guid !== $actor->guid
+            || Str::lower(trim($actor->email)) !== $assignment->normalized_recipient_email) {
             throw new ApiException(403, 'FORBIDDEN', 'Assignment tidak terikat dengan akun Anda.');
         }
         if (! $actor->hasVerifiedEmail()) {

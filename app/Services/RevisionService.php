@@ -18,6 +18,7 @@ class RevisionService
         private readonly InvitationService $invitations,
         private readonly AuditRecorder $audit,
         private readonly RealtimeNotificationService $realtime,
+        private readonly QrTokenService $qr,
     ) {}
 
     /** @return array{previous: DocumentVersion, draft: DocumentVersion} */
@@ -47,6 +48,7 @@ class RevisionService
             }
             $requester->update(['status' => 'revision_requested']);
             $version->update(['status' => VersionStatus::RevisionRequested]);
+            $this->qr->revoke($version);
 
             $draft = $version->document->versions()->create([
                 'version_number' => $version->version_number + 1,

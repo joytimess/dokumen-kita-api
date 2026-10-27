@@ -18,7 +18,9 @@ use App\Http\Controllers\Api\V1\EmailVerificationController;
 use App\Http\Controllers\Api\V1\GoogleAuthController;
 use App\Http\Controllers\Api\V1\InvitationController;
 use App\Http\Controllers\Api\V1\MeController;
+use App\Http\Controllers\Api\V1\OwnerSigningQrController;
 use App\Http\Controllers\Api\V1\PasswordResetController;
+use App\Http\Controllers\Api\V1\QrSigningController;
 use App\Http\Controllers\Api\V1\ReadConfirmationController;
 use App\Http\Controllers\Api\V1\SignatureAssetController;
 use App\Http\Controllers\Api\V1\SigningHistoryController;
@@ -39,6 +41,10 @@ Route::get('/', function () {
 })->middleware(BlockBrowserNavigation::class);
 
 Route::prefix('v1')->middleware(BlockBrowserNavigation::class)->group(function (): void {
+    Route::middleware('throttle:30,1')->prefix('signing-qr')->group(function (): void {
+        Route::post('resolve', [QrSigningController::class, 'resolve']);
+        Route::post('claim', [QrSigningController::class, 'claim'])->middleware('auth:sanctum');
+    });
     Route::get('/', function () {
         abort(404);
     });
@@ -110,6 +116,8 @@ Route::prefix('v1')->middleware(BlockBrowserNavigation::class)->group(function (
         });
 
         Route::prefix('versions')->group(function (): void {
+            Route::get('{version}/signing-qr', [OwnerSigningQrController::class, 'show']);
+            Route::get('{version}/signing-qr.svg', [OwnerSigningQrController::class, 'image'])->withoutMiddleware(BlockBrowserNavigation::class)->name('versions.signing-qr.image');
             Route::get('{version}', [DocumentVersionController::class, 'show']);
             Route::get('{version}/ocr', [DocumentOcrController::class, 'show']);
             Route::post('{version}/ocr', [DocumentOcrController::class, 'store'])->middleware('throttle:10,1');

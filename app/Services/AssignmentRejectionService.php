@@ -16,6 +16,7 @@ class AssignmentRejectionService
         private readonly InvitationService $invitations,
         private readonly AuditRecorder $audit,
         private readonly RealtimeNotificationService $realtime,
+        private readonly QrTokenService $qr,
     ) {}
 
     public function reject(User $actor, SignerAssignment $assignment, string $reason): SignerAssignment
@@ -44,6 +45,7 @@ class AssignmentRejectionService
                 }
             }
             $version->update(['status' => VersionStatus::Rejected]);
+            $this->qr->revoke($version);
             $version->document->update(['status' => VersionStatus::Rejected]);
 
             EmailNotification::firstOrCreate(['deduplication_key' => 'rejected:'.$version->guid], [

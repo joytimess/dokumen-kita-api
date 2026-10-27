@@ -19,6 +19,7 @@ class PublishService
         private readonly InvitationService $invitations,
         private readonly AuditRecorder $audit,
         private readonly RealtimeNotificationService $realtime,
+        private readonly QrTokenService $qr,
     ) {}
 
     public function publish(User $actor, DocumentVersion $version): DocumentVersion
@@ -30,6 +31,8 @@ class PublishService
             if ($locked->published_at !== null && in_array($locked->status, [
                 VersionStatus::InProgress, VersionStatus::Finalizing, VersionStatus::Completed,
             ], true)) {
+                $this->qr->ensure($locked);
+
                 return $locked->load('assignments.placeholders');
             }
 
@@ -72,6 +75,7 @@ class PublishService
                 'published_at' => now(),
             ]);
             $locked->document->update(['status' => VersionStatus::InProgress]);
+            $this->qr->ensure($locked);
 
             foreach ($assignments as $assignment) {
                 $assignment->update(['status' => $locked->signing_mode === 'parallel' || $assignment->sequence_number === 1 ? 'ready' : 'waiting']);
