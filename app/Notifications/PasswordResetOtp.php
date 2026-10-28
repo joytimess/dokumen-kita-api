@@ -50,10 +50,6 @@ class PasswordResetOtp extends Notification implements ShouldBeEncrypted, Should
     {
         return (new MailMessage)
             ->subject('Kode OTP reset password Dokumen Kita')
-            ->greeting('Halo!')
-            ->line('Gunakan kode berikut untuk mereset password Anda:')
-            ->line($this->otp)
-            ->line('Kode berlaku selama 5 menit sejak permintaan dibuat. Jangan bagikan kode ini kepada siapa pun.')
-            ->line('Jika Anda tidak meminta reset password, abaikan email ini.');
+            ->view('emails.password-reset-otp', ['otp' => $this->otp]);
     }
 }
